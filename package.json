@@ -1,0 +1,42 @@
+{
+  "name": "@blainehansen/decode",
+  "version": "0.1.0",
+  "description": "",
+  "main": "dist/lib/index.js",
+  "typings": "dist/lib/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "keywords": [],
+  "scripts": {
+    "dev": "macro-ts --dev check lib/macros.ts",
+    "ts:ast": "ts-creator lab/_generate.from.ts --use-tabs true --trailing-comma 'all' -o lab/_generate.to.ts",
+    "test": "mocha -r @blainehansen/macro-ts/register lib/**/*.test.ts",
+    "check": "macro-ts --dev check",
+    "build": "./build.sh",
+    "preversion": "npm test && npm run build",
+    "postversion": "git push origin master && git push origin master --tags && npm publish --access public"
+  },
+  "author": {
+    "name": "Blaine Hansen",
+    "email": "faichenshing@gmail.com",
+    "url": "http://blainehansen.me/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/blainehansen/monads.git"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@blainehansen/macro-ts": "^0.1.2",
+    "@types/chai": "^4.2.12",
+    "@types/mocha": "^8.0.3",
+    "chai": "^4.2.0",
+    "mocha": "^8.1.2",
+    "ts-creator": "^1.2.5",
+    "typescript": "^4.0.2"
+  },
+  "dependencies": {
+    "@blainehansen/monads": "^1.0.2"
+  }
+}

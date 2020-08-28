@@ -1,0 +1,9 @@
+node_modules/
+npm-debug.log
+
+.macro-ts
+dist
+.local.*
+
+lab/_generate.from.ts
+lab/_generate.to.ts
