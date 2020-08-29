@@ -611,7 +611,24 @@ export function looseObject<O extends Dict<any>>(
 }
 
 
-// Partial<T>
+// // Partial<T>
+// export function partial<T extends (any[] | Dict<any>)>(decoder: Decoder<T>): Decoder<Partial<T>> {
+// 	if (decoder instanceof ObjectDecoder) {
+// 		const newDecoders = {} as DecoderObject<Partial<T>>
+// 		for (const key in decoder.decoders)
+// 			newDecoders[key as keyof Partial<T>] = union(ObjectDecoder.decoders[key], undefinedLiteral)
+// 		return decoder instanceof StrictObjectDecoder
+// 			? new StrictObjectDecoder(decoder.name, newDecoders)
+// 			: new LooseObjectDecoder(decoder.name, newDecoders)
+// 	}
+// 	if (decoder instanceof ArrayDecoder)
+// 		return new ArrayDecoder(union(decoder.decoder, undefinedLiteral))
+// 	if (decoder instanceof TupleDecoder)
+// 		return new TupleDecoder(decoder.decoders.map(decoder => union(decoder, undefinedLiteral))) as unknown as Decoder<Partial<T>>
+
+// 	throw new Error('the partial combinator can only be used on object, array, or tuple decoders')
+// }
+
 // Readonly<T>
 // Record<K,T>
 // Pick<T,K>
