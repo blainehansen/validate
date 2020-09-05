@@ -1,9 +1,23 @@
 export type Dict<T> = { [key: string]: T }
+export type Cast<T, U> = T extends U ? T : never
 
 export type UnionToIntersection<U> =
 	(U extends any ? (k: U) => void : never) extends ((k: infer I) => void) ? I : never
 
+export type BoxedTupleUnion<L extends any[]> = { [K in keyof L]: [L[K]] }[number]
+export type UnboxIntersection<T> = T extends { 0: infer U } ? U : never
 export type TupleIntersection<L extends any[]> = UnionToIntersection<L[number]>
+// export type TupleIntersection<L extends any[]> = UnboxIntersection<UnionToIntersection<BoxedTupleUnion<L>>>
+export type FilteredTupleIntersection<L extends any[], E> = UnionToIntersection<Exclude<L[number], E>>
+// export type FilteredTupleIntersection<L extends any[], E> = UnboxIntersection<UnionToIntersection<Exclude<BoxedTupleUnion<{
+// 	[K in keyof L]: L[K]
+// }>, [E]>>>
+
+export type ExtractFromTupleToUnion<L extends any[], F> = Extract<L[number], F>
+export type ExcludeFromTupleToUnion<L extends any[], F> = Exclude<L[number], F>
+
+export type IsTrue<B extends boolean> = B extends true ? true : false
+export type IsFalse<B extends boolean> = B extends false ? true : false
 
 export type Equivalent<T, U> = T extends U ? U extends T ? true : false : false
 export type Negate<B extends boolean> = B extends true ? false : true

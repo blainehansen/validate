@@ -15,6 +15,12 @@ function validate<T>(decoder: c.Decoder<T>, okValues: T[], errValues: any[]) {
 		expect(decoder.decode(value).isErr()).true
 }
 
+function extra<T extends any[], O>(arr: T, obj: O): T & O {
+	for (const key in obj)
+		(arr as unknown as O)[key] = obj[key]
+	return arr as T & O
+}
+
 
 describe('cls', () => it('works', () => {
 	class A implements c.Codec {
@@ -165,6 +171,7 @@ describe('recursive', () => it('works', () => {
 describe('union', () => it('works', () => {
 	const d = c.union(c.string, c.boolean, c.number)
 	assert.same<c.TypeOf<typeof d>, string | boolean | number>(true)
+	const tt = c.tuple(d)
 
 	validate<string | boolean | number>(
 		d,
@@ -189,12 +196,12 @@ describe('intersection', () => {
 			c.object('a', { a: c.number }),
 			c.object('b', { b: c.string }),
 		)
+		assert.never<typeof d>(false)
 		assert.same<c.TypeOf<typeof d>, { a: number, b: string }>(true)
-
 		validate<{ a: number, b: string }>(
 			d,
 			[{ a: 1, b: 'a' }],
-			[{ a: 1, b: 4 }, { a: 'a', b: 'a' }, { b: 'a' }, { a: 1 }, null, undefined, [], ['a'], {}, true, false, 'a', -2]
+			[{ a: 1, b: 4 }, { a: 'a', b: 'a' }, { b: 'a' }, { a: 1 }, null, undefined, [], ['a'], {}, true, false, 'a', -2],
 		)
 
 		const n = c.intersection(
@@ -202,13 +209,68 @@ describe('intersection', () => {
 			c.object('c', { c: c.boolean }),
 			c.looseObject('d', { d: c.union(c.number, c.string) }),
 		)
+		assert.never<typeof n>(false)
 		assert.same<c.TypeOf<typeof n>, { a: number, b: string, c: boolean, d: number | string }>(true)
-
 		validate<{ a: number, b: string, c: boolean, d: number | string }>(
 			n,
 			[{ a: 1, b: 'a', c: true, d: 1 }, { a: 1, b: 'a', c: true, d: 'a' }],
-			[{ a: 1, b: 'a', c: false, d: true }, { a: 'a', b: 'a' }, { b: 'a' }, { a: 1 }, null, undefined, [], ['a'], {}, true, false, 'a', -2]
+			[{ a: 1, b: 'a', c: false, d: true }, { a: 'a', b: 'a' }, { b: 'a' }, { a: 1 }, null, undefined, [], ['a'], {}, true, false, 'a', -2],
 		)
+
+		const arr1 = c.intersection(
+			c.array(c.string),
+			c.object('thing', { a: c.number }),
+		)
+		assert.same<c.TypeOf<typeof arr1>, string[] & { a: number }>(true)
+		assert.never<typeof arr1>(false)
+		validate(
+			arr1,
+			[extra(['a', 'b'], { a: 1 }), extra([], { a: 0 })],
+			[['a'], extra(['a'], { a: 'a' }), extra(['a'], { b: 1 }), { a: 1 }, null, undefined, [], ['a'], {}, true, false, 'a', -2],
+		)
+
+		const arr2 = c.intersection(
+			c.array(c.object('a', { a: c.string })),
+			c.array(c.object('b', { b: c.number }), c.object('r', { r: c.boolean })),
+			c.object('n', { n: c.number }),
+			c.object('f', { f: c.optional(c.boolean) }),
+		)
+		assert.same<c.TypeOf<typeof arr2>, { a: string, b: number }[] & { r: boolean, n: number, f: boolean | undefined }>(true)
+		assert.never<typeof arr2>(false)
+		validate(
+			arr2,
+			[extra([{ a: 'a', b: 1 }], { r: true, n: 1, f: undefined }), extra([], { r: true, n: 1, f: false })],
+			[[], [{ a: 'a', b: 1 }], { r: true, n: 1, f: false }, { a: 1 }, null, undefined, [], ['a'], {}, true, false, 'a', -2],
+		)
+
+		const tup = c.intersection(
+			c.tuple(c.object('a', { a: c.string })),
+			c.tuple(c.object('b', { b: c.number })),
+		)
+		assert.same<c.TypeOf<typeof tup>, [{ a: string }] & [{ b: number }]>(true)
+		assert.never<typeof tup>(false)
+		validate(
+			tup,
+			[t({ a: 'a', b: 1 })],
+			[[], [{ a: 'a', b: 1 }, { a: 'a', b: 1 }], { a: 1 }, null, undefined, [], ['a'], {}, true, false, 'a', -2],
+		)
+
+		expect(() => {
+			const tupleAndArr = c.intersection(
+				c.array(c.object('a', { a: c.string })),
+				c.tuple(c.string),
+			)
+			assert.never<typeof tupleAndArr>(true)
+		}).throw()
+
+		expect(() => {
+			const tupleAndObject = c.intersection(
+				c.object('a', { a: c.string }),
+				c.tuple(c.string),
+			)
+			assert.never<typeof tupleAndObject>(true)
+		}).throw()
+
 	})
 })
 
@@ -316,11 +378,6 @@ describe('array', () => it('works', () => {
 	// expect(separated([4])).eql(Ok([4]))
 }))
 
-function extra<T, O>(arr: T[], obj: O): T[] & O {
-	for (const key in obj)
-		(arr as unknown as O)[key] = obj[key]
-	return arr as T[] & O
-}
 
 describe('array with extra', () => it('works', () => {
 	validate<string[] & { yo: boolean }>(
