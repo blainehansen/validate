@@ -445,14 +445,15 @@ export function dictionary<T>(decoder: Decoder<T>): DecoderType<DictionaryDecode
 }
 
 
-class TupleDecoder<L extends any[]> extends Decoder<L> {
-// class TupleDecoder<L extends any[], S extends any[] = []> extends Decoder<[...L, ...S]> {
+// class TupleDecoder<L extends any[]> extends Decoder<L> {
+class TupleDecoder<L extends any[], S extends any[] = []> extends Decoder<[...L, ...S]> {
 	readonly name: string
 	readonly minLength: number
-	constructor(readonly decoders: DecoderTuple<L>) {
-	// constructor(readonly decoders: DecoderTuple<L>, readonly spread: ArrayDecoder<S> | TupleDecoder) {
+	// constructor(readonly decoders: DecoderTuple<L>) {
+	constructor(readonly decoders: DecoderTuple<L>, readonly spread: Decoder<S> | undefined) {
 		super()
-		this.name = `[${decoders.map(d => d.name).join(', ')}]`
+		const spreadSection = spread ? `, ...${spread.name}` : ''
+		this.name = `[${decoders.map(d => d.name).join(', ')}${spreadSection}]`
 		let index = decoders.length - 1
 		while (index >= 0) {
 			const decoder = decoders[index]
@@ -462,16 +463,18 @@ class TupleDecoder<L extends any[]> extends Decoder<L> {
 		this.minLength = index + 1
 	}
 
-	decode(input: unknown): Result<L> {
-		const { name, decoders, minLength } = this
+	decode(input: unknown): Result<[...L, ...S]> {
+		const { name, decoders, spread, minLength } = this
 
 		if (
 			!Array.isArray(input)
 			|| input.length < minLength
-			|| input.length > decoders.length
+			|| (!spread && input.length > decoders.length)
 		) return Err(`expected ${name}, got ${input}`)
 
-		const t = [] as unknown as L
+		const keepOptionals = spread && input.length > decoders.length
+
+		const t = [] as unknown as [...L, ...S]
 		for (let index = 0; index < decoders.length; index++) {
 			const decoder = decoders[index]
 			const value = input[index]
@@ -479,21 +482,29 @@ class TupleDecoder<L extends any[]> extends Decoder<L> {
 			if (result.isErr())
 				return Err(`while decoding ${name}, at index ${index}, failed to decode ${decoder.name}: ${result.error}`)
 
-			if (!(decoder instanceof OptionalDecoder && !(index in input)))
+			if (keepOptionals || !(decoder instanceof OptionalDecoder && !(index in input)))
 				t.push(result.value)
+		}
+
+		if (spread) {
+			const rest = input.slice(decoders.length)
+			const result = spread.decode(rest)
+			if (result.isErr())
+				return Err(`while decoding ${name}, in the spread, failed to decode ${spread.name}: ${result.error}`)
+			Array.prototype.push.apply(t, result.value)
 		}
 
 		return Ok(t)
 	}
 }
-export function tuple<L extends any[]>(...decoders: DecoderTuple<L>): DecoderType<TupleDecoder<L>, L> {
-	return new TupleDecoder(decoders)
+export function tuple<L extends any[]>(...decoders: DecoderTuple<L>): DecoderType<TupleDecoder<L, []>, L> {
+	return new TupleDecoder<L, []>(decoders, undefined)
 }
 export function spread<L extends any[], S>(
 	decoders: DecoderTuple<L>,
 	spread: Decoder<S>,
-): DecoderType<TupleDecoder<[...L, ...S[]]>, [...L, ...S[]]> {
-	throw new Error()
+): DecoderType<TupleDecoder<L, S[]>, [...L, ...S[]]> {
+	return new TupleDecoder<L, S[]>(decoders, new ArrayDecoder(spread, undefined))
 }
 
 
@@ -681,7 +692,7 @@ export function intersection<D extends IntersectableDecoder[]>(
 			finalDecoders.push(intersection(...indexDecoders))
 		}
 
-		return new TupleDecoder(finalDecoders) as unknown as DecoderForIntersection<D>
+		return new TupleDecoder(finalDecoders, undefined) as unknown as DecoderForIntersection<D>
 	}
 	else if (arrayDecoders.length) {
 		const itemDecoders = [] as IntersectableDecoder[]
