@@ -233,7 +233,7 @@ describe('intersection', () => {
 			c.array(c.object('a', { a: c.string })),
 			c.array(c.object('b', { b: c.number }), c.object('r', { r: c.boolean })),
 			c.object('n', { n: c.number }),
-			c.object('f', { f: c.optional(c.boolean) }),
+			c.object('f', { f: c.undefinable(c.boolean) }),
 		)
 		assert.same<c.TypeOf<typeof arr2>, { a: string, b: number }[] & { r: boolean, n: number, f: boolean | undefined }>(true)
 		assert.never<typeof arr2>(false)
@@ -255,21 +255,21 @@ describe('intersection', () => {
 			[[], [{ a: 'a', b: 1 }, { a: 'a', b: 1 }], { a: 1 }, null, undefined, [], ['a'], {}, true, false, 'a', -2],
 		)
 
-		expect(() => {
-			const tupleAndArr = c.intersection(
-				c.array(c.object('a', { a: c.string })),
-				c.tuple(c.string),
-			)
-			assert.never<typeof tupleAndArr>(true)
-		}).throw()
+		const tupleAndArr = c.intersection(
+			c.array(c.object('a', { a: c.string })),
+			c.tuple(c.string),
+		)
+		assert.never<typeof tupleAndArr>(true)
+		// expect(() => {
+		// }).throw()
 
-		expect(() => {
-			const tupleAndObject = c.intersection(
-				c.object('a', { a: c.string }),
-				c.tuple(c.string),
-			)
-			assert.never<typeof tupleAndObject>(true)
-		}).throw()
+		const tupleAndObject = c.intersection(
+			c.object('a', { a: c.string }),
+			c.tuple(c.string),
+		)
+		assert.never<typeof tupleAndObject>(true)
+		// expect(() => {
+		// }).throw()
 
 	})
 })
@@ -321,6 +321,14 @@ describe('literals', () => it('works', () => {
 describe('optional', () => it('works', () => {
 	validate<string | undefined>(
 		c.optional(c.string),
+		['a', '', undefined],
+		[null, [], ['a'], {}, { a: 'a' }, true, 3],
+	)
+}))
+
+describe('undefinable', () => it('works', () => {
+	validate<string | undefined>(
+		c.undefinable(c.string),
 		['a', '', undefined],
 		[null, [], ['a'], {}, { a: 'a' }, true, 3],
 	)
@@ -420,13 +428,31 @@ describe('tuple', () => it('works', () => {
 	validate<[]>(
 		c.tuple(),
 		[[]],
-		[null, undefined, [false, 'a', 0], ['a'], { a: 'a' }, true, false, 'a', 0, 1, 2, -2, -1, 5.5, -5.5, Infinity, NaN, -Infinity, -NaN],
+		[null, undefined, [false, 'a', 0], [undefined], { a: 'a' }, true, 'a', 0, 1, 2, -2, -1, 5.5, -5.5, Infinity, NaN, -Infinity, -NaN],
+	)
+
+	validate<[number?]>(
+		c.tuple(c.optional(c.number)),
+		[[], [1], [undefined]],
+		[null, undefined, [false, 'a', 0], { a: 'a' }, true, 'a', 0, 1, 2, -2, -1, 5.5, -5.5, Infinity, NaN, -Infinity, -NaN],
 	)
 
 	validate<[number | string, boolean]>(
 		c.tuple(c.union(c.number, c.string), c.boolean),
 		[[1, true], ['a', false]],
 		[null, undefined, [], [false, 'a', 0], ['a'], { a: 'a' }, true, 'a', 0, 1, -1, 5.5, -5.5, Infinity, NaN, -Infinity, -NaN],
+	)
+
+	validate<[number, ...string[]]>(
+		c.spread(t(c.number), c.string),
+		[[1], [1, 'a'], [1, 'a', 'b'], [1, 'a', 'b', 'c']],
+		[null, undefined, [], [1, 4], [false, 'a', 0], ['a'], { a: 'a' }, true, 'a', 0, 1, -1, -5.5, Infinity, -NaN],
+	)
+
+	validate<[number, boolean?, ...string[]]>(
+		c.spread(t(c.number, c.optional(c.boolean)), c.string),
+		[[1], [1, undefined], [1, true], [1, true, 'a'], [1, undefined, 'a'], [1, false, 'b']],
+		[null, undefined, [], [1, 4], [false, 'a', 0], ['a'], [1, 'a'], [1, 'a', 'b'], { a: 'a' }, true, 'a', 0, 1, -1, -5.5, Infinity, -NaN],
 	)
 
 	// const separated = c.tuple(c.number, c.boolean).decode
@@ -449,13 +475,21 @@ describe('object', () => it('works', () => {
 		b: c.boolean,
 		c: c.union(c.number, c.nullLiteral),
 	})
+	expect(anon.name).equal('{ a: string, b: boolean, c: number | null }')
 	validate<{ a: string, b: boolean, c: number | null }>(
 		anon,
 		[{ a: 'a', b: true, c: 5 }, { a: 'a', b: true, c: null }],
 		[{}, null, undefined, [], ['a'], { a: 'a', b: 0, c: 4 }, { a: 'a', b: true, c: 4, d: 'a' }, true, 'a', 2, 5.5, -5.5, Infinity, NaN],
 	)
 
-	expect(anon.name).equal('{ a: string, b: boolean, c: number | null }')
+	validate<{ a?: string, b: boolean }>(
+		c.object('thing', {
+			a: c.optional(c.string),
+			b: c.boolean,
+		}),
+		[{ a: 'a', b: true }, { b: false }, { a: undefined, b: false }],
+		[{}, null, undefined, [], ['a'], { a: 'a' }, { b: true, c: 4 }, true, 'a', 2, 5.5, -5.5, Infinity, NaN],
+	)
 
 	// const separated = c.object('separated', { a: c.number }).decode
 	// expect(separated({ a: 1 })).eql(Ok({ a: 1 }))
@@ -471,7 +505,7 @@ describe('looseObject', () => it('works', () => {
 		[
 			{ a: 'a', b: true, c: 5 },
 			{ a: 'a', b: true, c: null },
-			{ a: 'a', b: true, c: 4, d: 'a' } as any as { a: string, b: boolean, c: number | null },
+			{ a: 'a', b: true, c: 4, d: 'a' } as unknown as { a: string, b: boolean, c: number | null },
 		],
 		[{}, null, undefined, [], ['a'], { a: 'a', b: 0, c: 4 }, { a: 'a', b: true, d: 'a' }, true, 'a', 2, -2, 5.5, -5.5, Infinity, NaN],
 	)
@@ -485,9 +519,22 @@ describe('looseObject', () => it('works', () => {
 		[
 			{ a: 'a', b: true, c: 5 },
 			{ a: 'a', b: true, c: null },
-			{ a: 'a', b: true, c: 4, d: 'a' } as any as { a: string, b: boolean, c: number | null },
+			{ a: 'a', b: true, c: 4, d: 'a' } as unknown as { a: string, b: boolean, c: number | null },
 		],
 		[{}, null, undefined, [], ['a'], { a: 'a', b: 0, c: 4 }, { a: 'a', b: true, d: 'a' }, true, 'a', 2, -2, 5.5, -5.5, Infinity, NaN],
+	)
+
+	validate(
+		c.looseObject('thing', {
+			a: c.optional(c.string),
+			b: c.boolean,
+		}),
+		[
+			{ a: 'a', b: true },
+			{ b: false, c: 4 } as unknown as { a?: string, b: boolean },
+			{ a: undefined, b: false, d: null } as unknown as { a?: string, b: boolean },
+		],
+		[{}, null, undefined, [], ['a'], { a: 'a' }, { a: 1, b: true }, true, 'a', 2, 5.5, -5.5, Infinity, NaN],
 	)
 
 	// const separated = c.object('separated', { a: c.number }).decode

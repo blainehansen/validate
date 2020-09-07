@@ -11,6 +11,8 @@ export abstract class Decoder<T> {
 	}
 }
 
+type DecoderType<D extends Decoder<T>, T> = D & Decoder<T>
+
 export type TypeOf<D extends Decoder<any>> = D extends Decoder<infer T> ? T : never
 
 type SafeAdaptor<U, T> = { isFallible: false, decoder: Decoder<U>, func: (input: U) => T }
@@ -57,7 +59,7 @@ class AdaptorDecoder<U, T> extends Decoder<T> {
 export function adapt<L extends any[], T>(
 	decoder: Decoder<T>,
 	...adaptors: AdaptorTuple<L, T>
-): AdaptorDecoder<L[number], T> & Decoder<T> {
+): DecoderType<AdaptorDecoder<L[number], T>, T>{
 	return new AdaptorDecoder(decoder, adaptors)
 }
 
@@ -133,7 +135,7 @@ class ClassDecoder<L extends any[], T extends Codec<L>> extends Decoder<T> {
 			.change(args => new this.cn(...args))
 	}
 }
-export function cls<L extends any[], T extends Codec<L>>(cn: CodecConstructor<L, T>): ClassDecoder<L, T> & Decoder<T> {
+export function cls<L extends any[], T extends Codec<L>>(cn: CodecConstructor<L, T>): DecoderType<ClassDecoder<L, T>, T> {
 	return new ClassDecoder(cn)
 }
 
@@ -150,7 +152,7 @@ class WrapDecoder<T> extends Decoder<T> {
 		return this.decoderFunc(input)
 	}
 }
-export function wrap<T>(name: string, decoderFunc: (input: unknown) => Result<T>): WrapDecoder<T> & Decoder<T> {
+export function wrap<T>(name: string, decoderFunc: (input: unknown) => Result<T>): DecoderType<WrapDecoder<T>, T> {
 	return new WrapDecoder(name, decoderFunc)
 }
 
@@ -245,7 +247,7 @@ class RecursiveDecoder<T> extends Decoder<T> {
 		return decoder.decode(input)
 	}
 }
-export function recursive<T>(fn: () => Decoder<T>): RecursiveDecoder<T> & Decoder<T> {
+export function recursive<T>(fn: () => Decoder<T>): DecoderType<RecursiveDecoder<T>, T> {
 	return new RecursiveDecoder(fn)
 }
 
@@ -266,7 +268,7 @@ class UnionDecoder<L extends any[]> extends Decoder<L[number]> {
 		return Err(`expected ${this.name}; got ${input}`)
 	}
 }
-export function union<L extends any[]>(...decoders: DecoderTuple<L>): UnionDecoder<L> & Decoder<L[number]> {
+export function union<L extends any[]>(...decoders: DecoderTuple<L>): DecoderType<UnionDecoder<L>, L[number]> {
 	const flattened = [] as unknown as DecoderTuple<L>
 	for (const decoder of decoders) {
 		if (decoder instanceof UnionDecoder)
@@ -295,26 +297,46 @@ class ValuesDecoder<V extends Primitives, L extends V[]> extends Decoder<L[numbe
 		return Err(`expected ${this.name}; got ${input}`)
 	}
 }
-export function literal<V extends Primitives>(value: V): ValuesDecoder<V, [V]> & Decoder<V> {
+export function literal<V extends Primitives>(value: V): DecoderType<ValuesDecoder<V, [V]>, V> {
 	return new ValuesDecoder([value] as [V])
 }
-export function literals<V extends Primitives, L extends V[]>(...values: L): ValuesDecoder<V, L> & Decoder<L[number]> {
+export function literals<V extends Primitives, L extends V[]>(...values: L): DecoderType<ValuesDecoder<V, L>, L[number]> {
 	return new ValuesDecoder(values)
 }
 
+export function undefinable<T>(decoder: Decoder<T>): DecoderType<UnionDecoder<[T, undefined]>, T | undefined> {
+	return new UnionDecoder([decoder, undefinedLiteral] as [Decoder<T>, Decoder<undefined>])
+}
+export function nullable<T>(decoder: Decoder<T>): DecoderType<UnionDecoder<[T, null]>, T | null> {
+	return new UnionDecoder([decoder, nullLiteral] as [Decoder<T>, Decoder<null>])
+}
+export function nillable<T>(decoder: Decoder<T>): DecoderType<UnionDecoder<[T, null, undefined]>, T | null | undefined> {
+	return new UnionDecoder([decoder, nullLiteral, undefinedLiteral] as [Decoder<T>, Decoder<null>, Decoder<undefined>])
+}
 
 export const undefinedLiteral = literal(undefined as undefined)
 export const nullLiteral = literal(null as null)
 
-export function optional<T>(decoder: Decoder<T>): UnionDecoder<[T, undefined]> & Decoder<T | undefined> {
-	return new UnionDecoder([decoder, undefinedLiteral] as [Decoder<T>, Decoder<undefined>])
+class OptionalDecoder<T> extends Decoder<T | undefined> {
+	readonly name: string
+	constructor(readonly decoder: Decoder<T>) {
+		super()
+		this.name = `(${this.decoder.name})?`
+	}
+
+	decode(input: unknown): Result<T | undefined> {
+		if (input === undefined) return Ok(undefined)
+		return this.decoder.decode(input)
+	}
 }
-export function nullable<T>(decoder: Decoder<T>): UnionDecoder<[T, null]> & Decoder<T | null> {
-	return new UnionDecoder([decoder, nullLiteral] as [Decoder<T>, Decoder<null>])
+export function optional<T>(decoder: Decoder<T>): DecoderType<OptionalDecoder<T>, T | undefined> {
+	return new OptionalDecoder(
+		decoder instanceof UnionDecoder
+			? new UnionDecoder((decoder as UnionDecoder<unknown[]>).decoders.filter(decoder => decoder !== undefinedLiteral))
+			: decoder
+	) as DecoderType<OptionalDecoder<T>, T | undefined>
 }
-export function nillable<T>(decoder: Decoder<T>): UnionDecoder<[T, null, undefined]> & Decoder<T | null | undefined> {
-	return new UnionDecoder([decoder, nullLiteral, undefinedLiteral] as [Decoder<T>, Decoder<null>, Decoder<undefined>])
-}
+
 
 class MaybeDecoder<T> extends Decoder<Maybe<T>> {
 	readonly name: string
@@ -338,7 +360,7 @@ class MaybeDecoder<T> extends Decoder<Maybe<T>> {
 			.changeErr(err => `expected ${this.name}, encountered this error: ${err}`)
 	}
 }
-export function maybe<T>(decoder: Decoder<T>): MaybeDecoder<T> & Decoder<Maybe<T>> {
+export function maybe<T>(decoder: Decoder<T>): DecoderType<MaybeDecoder<T>, Maybe<T>> {
 	return new MaybeDecoder<T>(decoder)
 }
 
@@ -349,11 +371,11 @@ function decoderErr<T>(decoder: Decoder<T>, input: unknown) {
 
 class ArrayDecoder<T, O extends Dict<any> = {}> extends Decoder<T[] & O> {
 	readonly name: string
-	readonly decoders: DecoderObject<O>
-	constructor(readonly decoder: Decoder<T>, extra: ObjectDecoder<O> | undefined) {
+	readonly decoders: DecoderObject<O> | undefined
+	constructor(readonly decoder: Decoder<T>, decoders: ObjectDecoder<O> | undefined) {
 		super()
 		this.name = `${decoder.name}[]`
-		this.decoders = extra ? { ...extra.decoders } : {} as DecoderObject<O>
+		this.decoders = decoders ? { ...decoders.decoders } : undefined
 	}
 
 	decode(input: unknown): Result<T[] & O> {
@@ -371,7 +393,7 @@ class ArrayDecoder<T, O extends Dict<any> = {}> extends Decoder<T[] & O> {
 			give.push(result.value)
 		}
 
-		for (const key in decoders) {
+		if (decoders) for (const key in decoders) {
 			const decoder = decoders[key]
 			const value = (input as T[] & O)[key]
 			const result = decoder.decode(value)
@@ -384,7 +406,7 @@ class ArrayDecoder<T, O extends Dict<any> = {}> extends Decoder<T[] & O> {
 }
 export function array<T, O extends Dict<any> = {}>(
 	decoder: Decoder<T>, extra?: ObjectDecoder<O>,
-): ArrayDecoder<T, O> & Decoder<T[] & O> {
+): DecoderType<ArrayDecoder<T, O>, T[] & O> {
 	return new ArrayDecoder(decoder, extra)
 }
 
@@ -418,24 +440,35 @@ class DictionaryDecoder<T> extends Decoder<Dict<T>> {
 		return Ok(give)
 	}
 }
-export function dictionary<T>(decoder: Decoder<T>): DictionaryDecoder<T> & Decoder<Dict<T>> {
+export function dictionary<T>(decoder: Decoder<T>): DecoderType<DictionaryDecoder<T>, Dict<T>> {
 	return new DictionaryDecoder(decoder)
 }
 
 
 class TupleDecoder<L extends any[]> extends Decoder<L> {
+// class TupleDecoder<L extends any[], S extends any[] = []> extends Decoder<[...L, ...S]> {
 	readonly name: string
+	readonly minLength: number
 	constructor(readonly decoders: DecoderTuple<L>) {
+	// constructor(readonly decoders: DecoderTuple<L>, readonly spread: ArrayDecoder<S> | TupleDecoder) {
 		super()
 		this.name = `[${decoders.map(d => d.name).join(', ')}]`
+		let index = decoders.length - 1
+		while (index >= 0) {
+			const decoder = decoders[index]
+			index--
+			if (!(decoder instanceof OptionalDecoder)) break
+		}
+		this.minLength = index + 1
 	}
 
 	decode(input: unknown): Result<L> {
-		const { name, decoders } = this
+		const { name, decoders, minLength } = this
 
 		if (
 			!Array.isArray(input)
-			|| input.length !== decoders.length
+			|| input.length < minLength
+			|| input.length > decoders.length
 		) return Err(`expected ${name}, got ${input}`)
 
 		const t = [] as unknown as L
@@ -446,14 +479,21 @@ class TupleDecoder<L extends any[]> extends Decoder<L> {
 			if (result.isErr())
 				return Err(`while decoding ${name}, at index ${index}, failed to decode ${decoder.name}: ${result.error}`)
 
-			t.push(result.value)
+			if (!(decoder instanceof OptionalDecoder && !(index in input)))
+				t.push(result.value)
 		}
 
 		return Ok(t)
 	}
 }
-export function tuple<L extends any[]>(...decoders: DecoderTuple<L>): TupleDecoder<L> & Decoder<L> {
+export function tuple<L extends any[]>(...decoders: DecoderTuple<L>): DecoderType<TupleDecoder<L>, L> {
 	return new TupleDecoder(decoders)
+}
+export function spread<L extends any[], S>(
+	decoders: DecoderTuple<L>,
+	spread: Decoder<S>,
+): DecoderType<TupleDecoder<[...L, ...S[]]>, [...L, ...S[]]> {
+	throw new Error()
 }
 
 
@@ -503,7 +543,8 @@ class StrictObjectDecoder<O extends Dict<any>> extends ObjectDecoder<O> {
 			const value = (input as any)[key]
 			const result = decoder.decode(value)
 			if (result.isErr()) return Err(`Failed to decode a valid ${name}, key ${key} has invalid value: ${value}`)
-			give[key as keyof O] = result.value
+			if (!(decoder instanceof OptionalDecoder && !(key in input)))
+				give[key as keyof O] = result.value
 		}
 
 		return Ok(give)
@@ -512,7 +553,7 @@ class StrictObjectDecoder<O extends Dict<any>> extends ObjectDecoder<O> {
 
 export function object<O extends Dict<any>>(
 	...args: [string, DecoderObject<O>] | [DecoderObject<O>]
-): ObjectDecoder<O> & Decoder<O> {
+): DecoderType<ObjectDecoder<O>, O> {
 	const [name, decoders] = objectNameBuilder(args)
 	return new StrictObjectDecoder(name, decoders)
 }
@@ -535,7 +576,8 @@ class LooseObjectDecoder<O extends Dict<any>> extends ObjectDecoder<O> {
 			const value = give[key]
 			const result = decoder.decode(value)
 			if (result.isErr()) return Err(`Failed to decode a valid ${name}, key ${key} has invalid value: ${value}`)
-			give[key as keyof O] = result.value
+			if (!(decoder instanceof OptionalDecoder && !(key in input)))
+				give[key as keyof O] = result.value
 		}
 
 		return Ok(give as O)
@@ -543,15 +585,15 @@ class LooseObjectDecoder<O extends Dict<any>> extends ObjectDecoder<O> {
 }
 export function looseObject<O extends Dict<any>>(
 	...args: [string, DecoderObject<O>] | [DecoderObject<O>]
-): ObjectDecoder<O> & Decoder<O> {
+): DecoderType<ObjectDecoder<O>, O> {
 	const [name, decoders] = objectNameBuilder(args)
 	return new LooseObjectDecoder(name, decoders)
 }
 
 
-type AnyArrayDecoder = ArrayDecoder<any, Dict<any>> & Decoder<any[] & Dict<any>>
-type AnyTupleDecoder = TupleDecoder<any[]> & Decoder<any[]>
-type AnyObjectDecoder = ObjectDecoder<Dict<any>> & Decoder<Dict<any>>
+type AnyArrayDecoder = DecoderType<ArrayDecoder<any, Dict<any>>, any[] & Dict<any>>
+type AnyTupleDecoder = DecoderType<TupleDecoder<any[]>, any[]>
+type AnyObjectDecoder = DecoderType<ObjectDecoder<Dict<any>>, Dict<any>>
 // type AnyUnionDecoder = UnionDecoder<any[]>
 
 // type AllUnionExtendsObject<T> = T extends T ? T extends object ? true : false : never
@@ -571,30 +613,35 @@ type DecoderForIntersection<D extends IntersectableDecoder[]> =
 	// : D extends (AnyTupleDecoder | AnyObjectDecoder)[] ? IntersectionTupleDecoder<D>
 	: never
 
-const marker: unique symbol = Symbol()
-type marker = typeof marker
+declare const _marker: unique symbol
+type marker = typeof _marker
 
-type IntersectionArrayDecoder<D extends (AnyArrayDecoder | AnyObjectDecoder)[]> = ArrayDecoder<FilteredTupleIntersection<{
-	// items
+
+type IntersectionArrayDecoder<D extends (AnyArrayDecoder | AnyObjectDecoder)[]> =
+	ArrayDecoder<ArrayDecoderItems<D>, ArrayDecoderExtra<D>> & Decoder<ArrayDecoderItems<D>[] & ArrayDecoderExtra<D>>
+
+type ArrayDecoderItems<D extends (AnyArrayDecoder | AnyObjectDecoder)[]> = FilteredTupleIntersection<{
 	[K in keyof D]:
 		D[K] extends ArrayDecoder<infer T, Dict<any>> ? T
 		: D[K] extends ObjectDecoder<Dict<any>> ? marker
 		: never
-}, marker>, Cast<TupleIntersection<{
-	// others
+}, marker>
+type ArrayDecoderExtra<D extends (AnyArrayDecoder | AnyObjectDecoder)[]> = Cast<TupleIntersection<{
 	[K in keyof D]:
 		D[K] extends ArrayDecoder<any, infer O> ? O
 		: D[K] extends ObjectDecoder<infer O> ? O
 		: never
-}>, Dict<any>>> /* & Decoder<make a helper to produce the annoying concrete and Decoder version> */
+}>, Dict<any>>
 
-type IntersectionTupleDecoder<D extends AnyTupleDecoder[]> = TupleDecoder<Cast<TupleIntersection<{
+type IntersectionTupleDecoder<D extends AnyTupleDecoder[]> = TupleDecoder<TupleDecoderIndices<D>> & Decoder<TupleDecoderIndices<D>>
+type TupleDecoderIndices<D extends AnyTupleDecoder[]> = Cast<TupleIntersection<{
 	[K in keyof D]: D[K] extends TupleDecoder<infer L> ? L : never
-}>, any[]>> /* & Decoder<make a helper to produce the annoying concrete and Decoder version> */
+}>, any[]>
 
-type IntersectionObjectDecoder<D extends AnyObjectDecoder[]> = ObjectDecoder<Cast<TupleIntersection<{
+type IntersectionObjectDecoder<D extends AnyObjectDecoder[]> = ObjectDecoder<ObjectDecoderItems<D>> & Decoder<ObjectDecoderItems<D>>
+type ObjectDecoderItems<D extends AnyObjectDecoder[]> = Cast<TupleIntersection<{
 	[K in keyof D]: D[K] extends ObjectDecoder<infer O> ? O : never
-}>, Dict<any>>> /* & Decoder<make a helper to produce the annoying concrete and Decoder version> */
+}>, Dict<any>>
 
 
 // type ObjectDecoderTuple<L extends Dict<any>[]> = {
@@ -607,27 +654,56 @@ export function intersection<D extends IntersectableDecoder[]>(
 	const objectDecoders = [] as AnyObjectDecoder[]
 	const tupleDecoders = [] as AnyTupleDecoder[]
 	const arrayDecoders = [] as AnyArrayDecoder[]
+	let isNever = false
 	const nameSegments: string[] = []
 	for (const decoder of decoders) {
 		nameSegments.push(decoder.name)
 		if (decoder instanceof ObjectDecoder) objectDecoders.push(decoder)
 		else if (decoder instanceof TupleDecoder) tupleDecoders.push(decoder)
 		else if (decoder instanceof ArrayDecoder) arrayDecoders.push(decoder)
-		else throw new Error("attempted to intersect something that wasn't an object, tuple or array")
+		else isNever = true
 	}
 	const name = nameSegments.join(' & ')
 
-	if (tupleDecoders.length && (arrayDecoders.length || objectDecoders.length))
-		throw new Error("tuple decoders can't be intersected with anything other than other tuple decoders")
-	else if (tupleDecoders.length ) {
-		// return a TupleDecoder
-		throw new Error("unimplemented tupleDecoders")
+	if (isNever || (tupleDecoders.length && (arrayDecoders.length || objectDecoders.length)))
+		return never as never
+
+	if (tupleDecoders.length ) {
+		const finalDecoders: Decoder<any>[] = []
+		const maxIndex = Math.max(...tupleDecoders.map(tupleDecoder => tupleDecoder.decoders.length))
+		for (let index = 0; index < maxIndex; index++) {
+			const indexDecoders = [] as IntersectableDecoder[]
+			for (const tupleDecoder of tupleDecoders) {
+				const indexDecoder = tupleDecoder.decoders[index]
+				if (indexDecoder) indexDecoders.push(indexDecoder as IntersectableDecoder)
+			}
+
+			finalDecoders.push(intersection(...indexDecoders))
+		}
+
+		return new TupleDecoder(finalDecoders) as unknown as DecoderForIntersection<D>
 	}
 	else if (arrayDecoders.length) {
-		// return an ArrayDecoder
-		throw new Error("unimplemented arrayDecoders")
+		const itemDecoders = [] as IntersectableDecoder[]
+		// const objectNameSections: string[] = []
+		for (const arrayDecoder of arrayDecoders) {
+			itemDecoders.push(arrayDecoder.decoder as IntersectableDecoder)
+			if (arrayDecoder.decoders) {
+				objectDecoders.push(new LooseObjectDecoder('', arrayDecoder.decoders))
+				// objectNameSections.push()
+			}
+		}
+
+		return new ArrayDecoder(
+			itemDecoders.length === 1 ? itemDecoders[0] : intersection(...itemDecoders),
+			objectIntersection('', objectDecoders),
+		) as DecoderForIntersection<D>
 	}
 
+	return objectIntersection(name, objectDecoders) as DecoderForIntersection<D>
+}
+
+function objectIntersection(name: string, objectDecoders: AnyObjectDecoder[]) {
 	const allKeys = new Set([...objectDecoders.flatMap(decoder => Object.keys(decoder.decoders))])
 	const finalDecoders = {} as DecoderObject<Dict<any>>
 	for (const key of allKeys) {
@@ -636,10 +712,10 @@ export function intersection<D extends IntersectableDecoder[]>(
 			return keyDecoder ? [keyDecoder] : []
 		})
 		if (keyDecoders.length === 0) continue
-		finalDecoders[key] = keyDecoders.length === 1 ? keyDecoders[0] : intersection(...(keyDecoders as unknown as IntersectableDecoder[]))
+		finalDecoders[key] = keyDecoders.length === 1 ? keyDecoders[0] : intersection(...(keyDecoders as IntersectableDecoder[]))
 	}
 
-	return new LooseObjectDecoder(name, finalDecoders) as DecoderForIntersection<D>
+	return new LooseObjectDecoder(name, finalDecoders)
 }
 
 
@@ -669,3 +745,5 @@ export function intersection<D extends IntersectableDecoder[]>(
 // Extract<T,U>
 // NonNullable<T>
 // Required<T>
+
+// https://github.com/neuledge/computed-types
