@@ -6,12 +6,12 @@ export type UnionToIntersection<U> =
 
 export type BoxedTupleUnion<L extends any[]> = { [K in keyof L]: [L[K]] }[number]
 export type UnboxIntersection<T> = T extends { 0: infer U } ? U : never
-export type TupleIntersection<L extends any[]> = UnionToIntersection<L[number]>
-// export type TupleIntersection<L extends any[]> = UnboxIntersection<UnionToIntersection<BoxedTupleUnion<L>>>
-export type FilteredTupleIntersection<L extends any[], E> = UnionToIntersection<Exclude<L[number], E>>
-// export type FilteredTupleIntersection<L extends any[], E> = UnboxIntersection<UnionToIntersection<Exclude<BoxedTupleUnion<{
-// 	[K in keyof L]: L[K]
-// }>, [E]>>>
+// export type TupleIntersection<L extends any[]> = UnionToIntersection<L[number]>
+export type TupleIntersection<L extends any[]> = UnboxIntersection<UnionToIntersection<BoxedTupleUnion<L>>>
+// export type FilteredTupleIntersection<L extends any[], E> = UnionToIntersection<Exclude<L[number], E>>
+export type FilteredTupleIntersection<L extends any[], E> = UnboxIntersection<UnionToIntersection<Exclude<BoxedTupleUnion<{
+	[K in keyof L]: L[K]
+}>, [E]>>>
 
 export type ExtractFromTupleToUnion<L extends any[], F> = Extract<L[number], F>
 export type ExcludeFromTupleToUnion<L extends any[], F> = Exclude<L[number], F>

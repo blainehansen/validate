@@ -605,13 +605,12 @@ export function looseObject<O extends Dict<any>>(
 type AnyArrayDecoder = DecoderType<ArrayDecoder<any, Dict<any>>, any[] & Dict<any>>
 type AnyTupleDecoder = DecoderType<TupleDecoder<any[]>, any[]>
 type AnyObjectDecoder = DecoderType<ObjectDecoder<Dict<any>>, Dict<any>>
-// type AnyUnionDecoder = UnionDecoder<any[]>
+type AnyUnionDecoder = DecoderType<UnionDecoder<any[]>, any>
 
 // type AllUnionExtendsObject<T> = T extends T ? T extends object ? true : false : never
 // type Z = IsTrue<AllUnionExtendsObject<target>>
 
-// type IntersectableDecoder = AnyArrayDecoder | AnyTupleDecoder | AnyObjectDecoder | AnyUnionDecoder
-type IntersectableDecoder = AnyArrayDecoder | AnyTupleDecoder | AnyObjectDecoder
+type IntersectableDecoder = AnyArrayDecoder | AnyTupleDecoder | AnyObjectDecoder | AnyUnionDecoder
 
 // if there are any UnionDecoders in the mix, the result will be a UnionDecoder and the type will be
 // type ScatterIntersectionAcrossUnion<T, L extends any[]> = T extends T ? TupleIntersection<[T, ...L]> : never
@@ -619,13 +618,21 @@ type IntersectableDecoder = AnyArrayDecoder | AnyTupleDecoder | AnyObjectDecoder
 
 type DecoderForIntersection<D extends IntersectableDecoder[]> =
 	D extends AnyTupleDecoder[] ? IntersectionTupleDecoder<D>
+	// D extends (AnyTupleDecoder | AnyObjectDecoder)[] ? IntersectionTupleDecoder<D>
 	: D extends AnyObjectDecoder[] ? IntersectionObjectDecoder<D>
 	: D extends (AnyArrayDecoder | AnyObjectDecoder)[] ? IntersectionArrayDecoder<D>
-	// : D extends (AnyTupleDecoder | AnyObjectDecoder)[] ? IntersectionTupleDecoder<D>
-	: never
+	: D extends (AnyTupleDecoder | AnyArrayDecoder | AnyObjectDecoder)[] ? Decoder<never>
+	: D extends (AnyUnionDecoder | AnyTupleDecoder)[] ? IntersectionUnionDecoder<D>
+	: D extends (AnyUnionDecoder | AnyArrayDecoder | AnyObjectDecoder)[] ? IntersectionUnionDecoder<D>
+	: Decoder<never>
 
 declare const _marker: unique symbol
 type marker = typeof _marker
+
+type IntersectionUnionDecoder<D extends IntersectableDecoder[]> = UnionDecoder<D> & Decoder<DecoderIntersection<D>>
+type DecoderIntersection<D extends Decoder<any>[]> = TupleIntersection<{
+	[K in keyof D]: TypeOf<Cast<D[K], Decoder<any>>>
+}>
 
 
 type IntersectionArrayDecoder<D extends (AnyArrayDecoder | AnyObjectDecoder)[]> =
@@ -665,19 +672,32 @@ export function intersection<D extends IntersectableDecoder[]>(
 	const objectDecoders = [] as AnyObjectDecoder[]
 	const tupleDecoders = [] as AnyTupleDecoder[]
 	const arrayDecoders = [] as AnyArrayDecoder[]
-	let isNever = false
+	const unionDecoders = [] as AnyUnionDecoder[]
 	const nameSegments: string[] = []
 	for (const decoder of decoders) {
 		nameSegments.push(decoder.name)
 		if (decoder instanceof ObjectDecoder) objectDecoders.push(decoder)
 		else if (decoder instanceof TupleDecoder) tupleDecoders.push(decoder)
 		else if (decoder instanceof ArrayDecoder) arrayDecoders.push(decoder)
-		else isNever = true
+		else if (decoder instanceof UnionDecoder) unionDecoders.push(decoder)
+		else return never as unknown as DecoderForIntersection<D>
 	}
 	const name = nameSegments.join(' & ')
 
-	if (isNever || (tupleDecoders.length && (arrayDecoders.length || objectDecoders.length)))
-		return never as never
+	if (tupleDecoders.length && (arrayDecoders.length || objectDecoders.length))
+		return never as unknown as DecoderForIntersection<D>
+
+	if (unionDecoders.length) {
+		const [unionDecoder, ...rest] = unionDecoders
+		const finalDecoders: Decoder<any>[] = []
+		for (const decoder of unionDecoder.decoders) {
+			finalDecoders.push(intersection(
+				decoder as IntersectableDecoder,
+				...rest, ...tupleDecoders, ...arrayDecoders, ...objectDecoders
+			))
+		}
+		return new UnionDecoder(finalDecoders) as DecoderForIntersection<D>
+	}
 
 	if (tupleDecoders.length ) {
 		const finalDecoders: Decoder<any>[] = []

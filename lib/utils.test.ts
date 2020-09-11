@@ -1,9 +1,12 @@
+export type IfAny<T, Y, N> = 0 extends (1 & T) ? Y : N
+export type IsAny<T> = IfAny<T, true, false>
 export type Same<A, B> =
-	[A] extends [B] ? [B] extends [A]
+	[A] extends [B] ? [B] extends [A] ? IsAny<A> extends false ? IsAny<B> extends false
 		? true
-		: false : false
+		: false : false : false : false
 
 export type IsNever<T> = Same<T, never>
+
 
 export namespace assertType {
 	export function boolean<B extends boolean>(

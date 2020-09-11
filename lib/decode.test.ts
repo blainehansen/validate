@@ -78,10 +78,8 @@ describe('adapt', () => it('works', () => {
 }))
 
 describe('wrap', () => it('works', () => {
-	const d = c.wrap("'b' | 7", c => {
-		const b = 'b' as const
-		const seven = 7 as const
-		return c === b || c === seven
+	const d = c.wrap("'b' | 7", (c): Result<'b' | 7> => {
+		return c === 'b' || c === 7
 			? Ok(c)
 			: Err('blah')
 	})
@@ -196,7 +194,6 @@ describe('intersection', () => {
 			c.object('a', { a: c.number }),
 			c.object('b', { b: c.string }),
 		)
-		assert.never<typeof d>(false)
 		assert.same<c.TypeOf<typeof d>, { a: number, b: string }>(true)
 		validate<{ a: number, b: string }>(
 			d,
@@ -209,7 +206,6 @@ describe('intersection', () => {
 			c.object('c', { c: c.boolean }),
 			c.looseObject('d', { d: c.union(c.number, c.string) }),
 		)
-		assert.never<typeof n>(false)
 		assert.same<c.TypeOf<typeof n>, { a: number, b: string, c: boolean, d: number | string }>(true)
 		validate<{ a: number, b: string, c: boolean, d: number | string }>(
 			n,
@@ -222,7 +218,6 @@ describe('intersection', () => {
 			c.object('thing', { a: c.number }),
 		)
 		assert.same<c.TypeOf<typeof arr1>, string[] & { a: number }>(true)
-		assert.never<typeof arr1>(false)
 		validate(
 			arr1,
 			[extra(['a', 'b'], { a: 1 }), extra([], { a: 0 })],
@@ -236,7 +231,6 @@ describe('intersection', () => {
 			c.object('f', { f: c.undefinable(c.boolean) }),
 		)
 		assert.same<c.TypeOf<typeof arr2>, { a: string, b: number }[] & { r: boolean, n: number, f: boolean | undefined }>(true)
-		assert.never<typeof arr2>(false)
 		validate(
 			arr2,
 			[extra([{ a: 'a', b: 1 }], { r: true, n: 1, f: undefined }), extra([], { r: true, n: 1, f: false })],
@@ -248,29 +242,56 @@ describe('intersection', () => {
 			c.tuple(c.object('b', { b: c.number })),
 		)
 		assert.same<c.TypeOf<typeof tup>, [{ a: string }] & [{ b: number }]>(true)
-		assert.never<typeof tup>(false)
 		validate(
 			tup,
 			[t({ a: 'a', b: 1 })],
-			[[], [{ a: 'a', b: 1 }, { a: 'a', b: 1 }], { a: 1 }, null, undefined, [], ['a'], {}, true, false, 'a', -2],
+			[[], [{ a: 'a', b: 1 }, { a: 'a', b: 1 }], { a: 1 }, null, undefined, ['a'], {}, true, false, 'a', -2],
 		)
 
 		const tupleAndArr = c.intersection(
 			c.array(c.object('a', { a: c.string })),
 			c.tuple(c.string),
 		)
-		assert.never<typeof tupleAndArr>(true)
-		// expect(() => {
-		// }).throw()
+		assert.never<c.TypeOf<typeof tupleAndArr>>(true)
 
 		const tupleAndObject = c.intersection(
 			c.object('a', { a: c.string }),
 			c.tuple(c.string),
 		)
-		assert.never<typeof tupleAndObject>(true)
-		// expect(() => {
-		// }).throw()
+		assert.never<c.TypeOf<typeof tupleAndObject>>(true)
+		expect(tupleAndObject.decode(extra(['a'], { a: 'a' }))).eql(Err('never'))
 
+		const un1 = c.intersection(
+			c.union(
+				c.object('a', { a: c.string }),
+				c.object('b', { b: c.boolean }),
+			),
+			c.object('c', { c: c.number })
+		)
+		assert.same<c.TypeOf<typeof un1>, ({ a: string } | { b: boolean }) & { c: number }>(true)
+		validate(
+			un1,
+			[{ a: 'a', c: 1 }, { b: true, c: 1 }],
+			[{ a: 'a' }, { b: true }, { a: 2, c: 4 }, { b: 'a', c: 4 }, { a: 1 }, null, undefined, [], ['a'], {}, true, false, 'a', -2],
+		)
+
+		const un2 = c.intersection(
+			c.union(
+				c.object('a', { a: c.string }),
+				c.object('b', { b: c.boolean }),
+			),
+			c.union(
+				c.object('c', { c: c.string }),
+				c.object('d', { d: c.boolean }),
+			),
+			c.object('e', { e: c.number })
+		)
+		assert.same<c.TypeOf<typeof un2>, ({ a: string } | { b: boolean }) & ({ c: string } | { d: boolean }) & { e: number }>(true)
+		validate(
+			un2,
+			[{ a: 'a', c: 'a', e: 1 }, { a: 'a', d: true, e: 1 }, { b: true, c: 'c', e: 1 }, { b: false, d: true, e: 1 }],
+			[{ b: 'a', c: 4 }, null, undefined, [], ['a'], {}, true, false, 'a', -2],
+		)
 	})
 })
 
