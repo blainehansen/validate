@@ -316,6 +316,8 @@ export function nillable<T>(decoder: Decoder<T>): DecoderType<UnionDecoder<[T, n
 
 export const undefinedLiteral = literal(undefined as undefined)
 export const nullLiteral = literal(null as null)
+export const trueLiteral = literal(true as true)
+export const falseLiteral = literal(false as false)
 
 class OptionalDecoder<T> extends Decoder<T | undefined> {
 	readonly name: string
