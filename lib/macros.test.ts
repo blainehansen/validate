@@ -18,17 +18,15 @@ type G<L, R> = { left: L, right: R }
 
 @decodable!!()
 type GAB = G<string, number>
-// const g = G.decoder<A, B>(A.decoder, B.decoder)
-// const g: c.TypeOf<typeof GAB.decoder> = { left: ['a'], right: { b: 1 } }
-// assert.same<c.TypeOf<typeof GAB.decoder>, { left: A, right: B }>(true)
+assert.same<c.TypeOf<typeof GAB.decoder>, { left: string, right: number }>(true)
 
 const result = GAB.decoder.decode({})
 if (result.isOk()) {
-	const gab: GAB = result.value
+	const gab = result.value
 	gab.left.toLowerCase()
 	gab.right.toFixed()
 }
 
-// @decodable!!()
-// type GAboolean = G<A, boolean>
-// assert.same<c.TypeOf<typeof GAboolean.decoder>, { a: string, b: boolean }>(true)
+@decodable!!()
+type GAboolean = G<A, boolean>
+assert.same<c.TypeOf<typeof GAboolean.decoder>, { a: string, b: boolean }>(true)
