@@ -1,8 +1,27 @@
 import * as ts from 'typescript'
 const SyntaxKind = ts.SyntaxKind
+import { Result, Ok, Err } from '@blainehansen/monads'
 import { MacroContext, DecoratorMacro, DecoratorMacroResult } from '@blainehansen/macro-ts'
 
 import { Dict } from './utils'
+
+type TsNodeErrArgs = Parameters<MacroContext['TsNodeErr']>
+type NodeResult<T> = Result<T, TsNodeErrArgs>
+function TsNodeErr<T>(ctx: MacroContext, ...tsNodeErrArgs: TsNodeErrArgs): NodeResult<T> {
+	return Err(tsNodeErrArgs)
+}
+function resultMap<T, U>(ctx: MacroContext, arr: Iterable<T>, fn: (value: T) => NodeResult<U>): U[] {
+	const final = []
+	for (const item of arr) {
+		const result = fn(item)
+		if (result.isOk()) {
+			final.push(result.value)
+			continue
+		}
+		ctx.subsume(ctx.TsNodeErr(...result.error))
+	}
+	return final
+}
 
 function isNodeExported(node: ts.Node): boolean {
 	return (
@@ -19,39 +38,117 @@ export const decodable = DecoratorMacro((ctx, statement) => {
 		return decodableForClass(ctx, statement, isExported)
 	if (ts.isInterfaceDeclaration(statement))
 		return decodableForInterface(ctx, statement, isExported)
+	if (ts.isFunctionDeclaration(statement))
+		return decodableForFunction(ctx, statement, isExported)
 
-	return ctx.TsNodeErr(statement, 'Invalid statement', `The "decodable" macro can only be used on type aliases, classes, and interfaces.`)
+	return ctx.TsNodeErr(statement, "Unsupported statement", `The "decodable" macro can only be used on type aliases, classes, and interfaces.`)
 })
 
 function decodableForTypeAlias(ctx: MacroContext, alias: ts.TypeAliasDeclaration, isExported: boolean): DecoratorMacroResult {
+	const genericNames = produceGenericNames(alias.typeParameters)
+	const decoder = decoderForType(ctx, alias.type, genericNames, alias.name.text)
+	if (decoder.isErr()) return ctx.TsNodeErr(...decoder.error)
 	return ctx.Ok({
 		replacement: alias,
-		append: [createDecoderModule(isExported, alias.name, alias.typeParameters, alias.type, undefined)],
+		append: [createDecoderModule(isExported, alias.name, alias.typeParameters, decoder.value)],
 	})
 }
 
-function decodableForClass(ctx: MacroContext, declaration: ts.ClassDeclaration, isExported: boolean): DecoratorMacroResult {
-	throw new Error()
-}
-
 function decodableForInterface(ctx: MacroContext, declaration: ts.InterfaceDeclaration, isExported: boolean): DecoratorMacroResult {
-	// name
-	// typeParameters?
-	// heritageClauses?: ts.NodeArray<{ types: NodeArray<ExpressionWithTypeArguments> }>
-	// members: ts.NodeArray<{ name?: PropertyName, questionToken?: QuestionToken }> but we have to narrow them :(
-
-	throw new Error()
+	const genericNames = produceGenericNames(declaration.typeParameters)
+	const intersections = declaration.heritageClauses ? intersectionsFromHeritageClauses(ctx, declaration.heritageClauses, genericNames) : undefined
+	const decoder = decoderForType(ctx, ts.createTypeLiteralNode(declaration.members), genericNames, declaration.name.text)
+	if (decoder.isErr()) return ctx.TsNodeErr(...decoder.error)
+	return ctx.Ok({
+		replacement: declaration,
+		append: [createDecoderModule(
+			isExported, declaration.name, declaration.typeParameters,
+			intersectOrNot(decoder.value, intersections),
+		)],
+	})
 }
 
+
+// look for the constructor, and if it exists simply make the decoder for the parameters with a wrapper
+// if it doesn't exist then look for an extends heritage, and just use the decoder for that, since the constructor must be derived
+// if that doesn't exist then make a trivial decoder that just creates the thing???
+// no probably the only reasonable thing to do here is to error. we should be forcing people to use a class convention that is actually reasonable to decode! maybe you can get fancy in the future, but for now keep it simple
+function decodableForClass(ctx: MacroContext, declaration: ts.ClassDeclaration, isExported: boolean): DecoratorMacroResult {
+	if (!declaration.name)
+		return ctx.TsNodeErr(declaration, "Invalid Anonymous Class", "Decodable classes must have a name.")
+
+	const genericNames = produceGenericNames(declaration.typeParameters)
+	let constructorDecoder: ts.Expression | undefined = undefined
+	for (const member of declaration.members) switch (member.kind) {
+		case SyntaxKind.Constructor: {
+			const decoder = createDecoderForArgs(ctx, (member as ts.ConstructorDeclaration).parameters, genericNames)
+			if (decoder.isErr()) return ctx.TsNodeErr(...decoder.error)
+			constructorDecoder = decoder.value
+			break
+		}
+		default: continue
+	}
+	if (!constructorDecoder)
+		return ctx.TsNodeErr(declaration.name, "No Constructor", "Decodable classes must a constructor whose args can be decoded.")
+
+	// TODO this doesn't do the right thing, at this point it's only decoding the args, but we need a combinator to instantiate the class
+	return ctx.Ok({
+		replacement: declaration,
+		append: [createDecoderModule(isExported, declaration.name, declaration.typeParameters, constructorDecoder)],
+	})
+}
+
+
+function decodableForFunction(ctx: MacroContext, declaration: ts.FunctionDeclaration, isExported: boolean): DecoratorMacroResult {
+	if (!declaration.name)
+		return ctx.TsNodeErr(declaration, "Invalid Anonymous Function", "Decodable functions must have a name.")
+
+	const genericNames = produceGenericNames(declaration.typeParameters)
+	const decoder = createDecoderForArgs(ctx, declaration.parameters, genericNames)
+	if (decoder.isErr()) return ctx.TsNodeErr(...decoder.error)
+
+	return ctx.Ok({
+		replacement: declaration,
+		append: [createDecoderModule(isExported, declaration.name, declaration.typeParameters, decoder.value)],
+	})
+}
+
+function tupleOrSpread(tupleArgs: ts.Expression[], spreadArg: ts.Expression | undefined) {
+	return spreadArg
+		? createCombinatorCall('spread', [ts.createArrayLiteral(tupleArgs, false), spreadArg])
+		: createCombinatorCall('tuple', tupleArgs)
+}
+
+function createDecoderForArgs(
+	ctx: MacroContext,
+	parameters: ts.NodeArray<ts.ParameterDeclaration>,
+	genericNames: Set<string> | undefined
+): NodeResult<ts.Expression> {
+	const tupleArgs: ts.Expression[] = []
+	let spreadArg: ts.Expression | undefined = undefined
+	for (const parameter of parameters) {
+		const { dotDotDotToken, questionToken, type, initializer } = parameter
+		if (!type)
+			return TsNodeErr(ctx, parameter, "No Decodable Type", `The "decode" macro can't create a decoder from an inferred type.`)
+		const isRest = !!dotDotDotToken
+		const result = decoderForType(ctx, type, genericNames, undefined)
+		if (result.isErr()) return Err(result.error)
+		const decoder = createOptional(!!questionToken || !!initializer, result.value)
+		if (isRest) spreadArg = decoder
+		else tupleArgs.push(decoder)
+	}
+
+	return Ok(tupleOrSpread(tupleArgs, spreadArg))
+}
 
 function createDecoderModule(
 	isExported: boolean, name: ts.Identifier,
-	typeParameters: ts.NodeArray<ts.TypeParameterDeclaration> | undefined, type: ts.TypeNode,
-	intersections: ts.Expression[] | undefined,
+	typeParameters: ts.NodeArray<ts.TypeParameterDeclaration> | undefined,
+	decoderExpression: ts.Expression,
 ) {
 	const statement = typeParameters
-		? createGenericDecoder(name, typeParameters, type, intersections)
-		: createConcreteDecoder(name, typeParameters, type, intersections)
+		? createGenericDecoder(name, typeParameters, decoderExpression)
+		: createConcreteDecoder(name, decoderExpression)
 
 	return ts.createModuleDeclaration(
 		undefined, conditionalExport(isExported), name,
@@ -59,10 +156,20 @@ function createDecoderModule(
 	)
 }
 
+
+function produceGenericNames(typeParameters: ts.NodeArray<ts.TypeParameterDeclaration> | undefined) {
+	if (!typeParameters)
+		return undefined
+	const genericNames = new Set<string>()
+	for (const typeParameter of typeParameters)
+		genericNames.add(typeParameter.name.text)
+	return genericNames
+}
+
 function createGenericDecoder(
 	name: ts.Identifier,
-	typeParameters: ts.NodeArray<ts.TypeParameterDeclaration>, type: ts.TypeNode,
-	intersections: ts.Expression[] | undefined,
+	typeParameters: ts.NodeArray<ts.TypeParameterDeclaration>,
+	decoderExpression: ts.Expression,
 ) {
 	const genericNames = new Set<string>()
 	const parameters: ts.ParameterDeclaration[] = []
@@ -80,24 +187,18 @@ function createGenericDecoder(
 	return ts.createFunctionDeclaration(
 		undefined, exportModifers, undefined, ts.createIdentifier('decoder'),
 		typeParameters, parameters, undefined,
-		ts.createBlock([ts.createReturn(
-			intersectOrNot(decoderForType(type, genericNames, name.text), intersections),
-		)], true),
+		ts.createBlock([ts.createReturn(decoderExpression)], true),
 	)
 }
 
 function createConcreteDecoder(
 	name: ts.Identifier,
-	typeParameters: undefined, type: ts.TypeNode,
-	intersections: ts.Expression[] | undefined,
+	decoderExpression: ts.Expression,
 ) {
 	return ts.createVariableStatement(
 		exportModifers,
 		ts.createVariableDeclarationList([
-			ts.createVariableDeclaration(
-				ts.createIdentifier('decoder'), undefined,
-				intersectOrNot(decoderForType(type, undefined, name.text), intersections),
-			),
+			ts.createVariableDeclaration(ts.createIdentifier('decoder'), undefined, decoderExpression),
 		], ts.NodeFlags.Const),
 	)
 }
@@ -132,41 +233,48 @@ const primitiveMap = {
 	[SyntaxKind.AnyKeyword]: 'any',
 }
 
-function decoderForType(t: ts.TypeNode, genericNames: Set<string> | undefined, aliasName: string | undefined): ts.Expression {
-	switch (t.kind) {
+function decoderForType(
+	ctx: MacroContext,
+	typeNode: ts.TypeNode,
+	genericNames: Set<string> | undefined,
+	aliasName: string | undefined
+): NodeResult<ts.Expression> {
+	switch (typeNode.kind) {
 		case SyntaxKind.BooleanKeyword: case SyntaxKind.StringKeyword:
 		case SyntaxKind.NumberKeyword: case SyntaxKind.BigIntKeyword:
 		case SyntaxKind.ObjectKeyword: case SyntaxKind.SymbolKeyword:
 		case SyntaxKind.UndefinedKeyword: case SyntaxKind.VoidKeyword:
 		case SyntaxKind.UnknownKeyword: case SyntaxKind.NeverKeyword: case SyntaxKind.AnyKeyword:
-			return ts.createPropertyAccess(ts.createIdentifier('c'), ts.createIdentifier(primitiveMap[t.kind]))
+			return Ok(ts.createPropertyAccess(ts.createIdentifier('c'), ts.createIdentifier(primitiveMap[typeNode.kind])))
 
 		case SyntaxKind.TypeReference: {
-			const node = t as ts.TypeReferenceNode
+			const node = typeNode as ts.TypeReferenceNode
 			// if a TypeReferenceNode is in genericNames, then we just pass the name along directly
 			// TODO catch special references such as Array
 			if (ts.isIdentifier(node.typeName) && genericNames && genericNames.has(node.typeName.text))
-				return node.typeName
+				return Ok(node.typeName)
 
 			// otherwise we make it name.decoder
 			const target = createDecoderAccess(qualifiedToExpression(node.typeName))
-			return node.typeArguments
+			const expression = node.typeArguments
 				? ts.createCall(
 					target, undefined,
-					node.typeArguments.map(typeArgument => decoderForType(typeArgument, genericNames, undefined)),
+					resultMap(ctx, node.typeArguments, (typeArgument: ts.TypeNode) => decoderForType(ctx, typeArgument, genericNames, undefined)),
 				)
 				: target
+			return Ok(expression)
 		}
 
 		case SyntaxKind.LiteralType: {
-			const node = t as ts.LiteralTypeNode
+			const node = typeNode as ts.LiteralTypeNode
 			switch (node.literal.kind) {
 				case SyntaxKind.NullKeyword: case SyntaxKind.TrueKeyword: case SyntaxKind.FalseKeyword:
 				case SyntaxKind.StringLiteral: case SyntaxKind.NumericLiteral: case SyntaxKind.BigIntLiteral:
-					return createCombinatorCall('literal', [createLiteral(node.literal as unknown as LiteralNode)])
+					return Ok(createCombinatorCall('literal', [createLiteral(node.literal as unknown as LiteralNode)]))
 
-				case SyntaxKind.PrefixUnaryExpression:
-					throw new Error()
+				default:
+					return TsNodeErr(ctx, node.literal, "Unsupported Literal Expression")
+				// case SyntaxKind.PrefixUnaryExpression:
 					// export type PrefixUnaryOperator = SyntaxKind.PlusPlusToken | SyntaxKind.MinusMinusToken | SyntaxKind.PlusToken | SyntaxKind.MinusToken | SyntaxKind.TildeToken | SyntaxKind.ExclamationToken;
 					// operator
 					// operand
@@ -174,81 +282,86 @@ function decoderForType(t: ts.TypeNode, genericNames: Set<string> | undefined, a
 		}
 
 		case SyntaxKind.TypeLiteral: {
-			const node = t as ts.TypeLiteralNode
-			const properties = node.members.map(member => {
+			const node = typeNode as ts.TypeLiteralNode
+			const properties = resultMap(ctx, node.members, member => {
 				if (!member.name || !ts.isIdentifier(member.name))
-					throw new Error()
+					return TsNodeErr(ctx, member, "Invalid Name")
 				if (!ts.isPropertySignature(member) || !member.type)
-					throw new Error()
-				// if (member.initializer)
-				// 	warn
+					return TsNodeErr(ctx, member, "Unsupported Member")
 
-				// TODO handle OptionalTypeNode here?
-				// or have we already by handling the questionToken?
-				const decoder = decoderForType(member.type, genericNames, undefined)
+				const decoder = decoderForType(ctx, member.type, genericNames, undefined)
+				if (decoder.isErr()) return Err(decoder.error)
 				// CallSignatureDeclaration
 				// ConstructSignatureDeclaration
 				// PropertySignature
 				// MethodSignature
-				return ts.createPropertyAssignment(
+				return Ok(ts.createPropertyAssignment(
 					member.name,
-					createOptional(!!member.questionToken, decoder),
-				)
+					createOptional(!!member.questionToken, decoder.value),
+				))
 			})
 
 			const args: ts.Expression[] = [ts.createObjectLiteral(properties, false)]
 			if (aliasName !== undefined)
 				args.unshift(ts.createStringLiteral(aliasName))
 
-			return createCombinatorCall('looseObject', args)
+			return Ok(createCombinatorCall('object', args))
 		}
 
 		case SyntaxKind.ArrayType: {
-			const node = t as ts.ArrayTypeNode
-			return createCombinatorCall('array', [decoderForType(node.elementType, genericNames, undefined)])
+			const node = typeNode as ts.ArrayTypeNode
+			const decoder = decoderForType(ctx, node.elementType, genericNames, undefined)
+			if (decoder.isErr()) return Err(decoder.error)
+			return Ok(createCombinatorCall('array', [decoder.value]))
 		}
 
 		case SyntaxKind.TupleType: {
-			const node = t as ts.TupleTypeNode
-			const [tupleArgs, spreadArg] = node.elements.reduce((acc, element) => {
+			const node = typeNode as ts.TupleTypeNode
+			const tupleArgs: ts.Expression[] = []
+			let spreadArg: ts.Expression | undefined = undefined
+			for (const element of node.elements) {
 				const [isRest, isOptional, actualNode] =
 					ts.isNamedTupleMember(element) ? [!!element.dotDotDotToken, !!element.questionToken, element.type]
 					: ts.isRestTypeNode(element) ? [true, false, element.type]
 					: ts.isOptionalTypeNode(element) ? [false, true, element.type]
 					: [false, false, element]
 
-				const decoder = decoderForType(actualNode, genericNames, undefined)
+				const decoder = decoderForType(ctx, actualNode, genericNames, undefined)
+				if (decoder.isErr()) {
+					ctx.subsume(ctx.TsNodeErr(...decoder.error))
+					continue
+				}
 				if (isRest) {
-					if (acc[1]) throw new Error()
-					acc[1] = decoder
+					if (spreadArg) {
+						ctx.subsume(ctx.TsNodeErr(element, "Duplicate Rest"))
+						continue
+					}
+					spreadArg = decoder.value
 				}
 				else
-					acc[0].push(createOptional(isOptional, decoder))
+					tupleArgs.push(createOptional(isOptional, decoder.value))
+			}
 
-				return acc
-			}, [[], undefined] as [ts.Expression[], ts.Expression | undefined])
-
-			return spreadArg
-				? createCombinatorCall('spread', [ts.createArrayLiteral(tupleArgs, false), spreadArg])
-				: createCombinatorCall('tuple', tupleArgs)
+			return Ok(tupleOrSpread(tupleArgs, spreadArg))
 		}
 
 		case SyntaxKind.UnionType: {
-			const node = t as ts.UnionTypeNode
+			const node = typeNode as ts.UnionTypeNode
 			const types = node.types
-			return types.every(type => isLiteral(type))
+			const expression = types.every(type => isLiteral(type))
 				? createCombinatorCall('literals', (types as unknown as LiteralNode[]).map(createLiteral))
-				: createCombinatorCall('union', types.map(type => decoderForType(type, genericNames, undefined)))
+				: createCombinatorCall('union', resultMap(ctx, types, type => decoderForType(ctx, type, genericNames, undefined)))
+			return Ok(expression)
 		}
 
 		case SyntaxKind.IntersectionType: {
-			const node = t as ts.IntersectionTypeNode
-			return createCombinatorCall('intersection', node.types.map(type => decoderForType(type, genericNames, undefined)))
+			const node = typeNode as ts.IntersectionTypeNode
+			return Ok(createCombinatorCall('intersection', resultMap(ctx, node.types, type => decoderForType(ctx, type, genericNames, undefined))))
 		}
 
 		case SyntaxKind.ParenthesizedType: {
-			const node = t as ts.ParenthesizedTypeNode
-			return decoderForType(node.type, genericNames, aliasName)
+			const node = typeNode as ts.ParenthesizedTypeNode
+			return decoderForType(ctx, node.type, genericNames, aliasName)
 		}
 
 		// OptionalTypeNode and RestTypeNode? I feel like these only make sense in objects and tuples?
@@ -259,8 +372,7 @@ function decoderForType(t: ts.TypeNode, genericNames: Set<string> | undefined, a
 		// MappedTypeNode
 
 		default:
-			// TODO needs to return a Result
-			throw new Error("unsupported type")
+			return TsNodeErr(ctx, typeNode, "Unsupported Type")
 	}
 }
 
@@ -300,6 +412,31 @@ function createDecoderAccess(target: ts.Expression) {
 	return ts.createPropertyAccess(target, ts.createIdentifier('decoder'))
 }
 
+function intersectionsFromHeritageClauses(
+	ctx: MacroContext,
+	heritageClauses: ts.NodeArray<ts.HeritageClause>,
+	genericNames: Set<string> | undefined,
+): ts.Expression[] {
+	const expressions: ts.Expression[] = []
+	for (const { types } of heritageClauses) for (const { expression, typeArguments } of types) switch (expression.kind) {
+		case SyntaxKind.Identifier: {
+			const target = createDecoderAccess(expression as ts.Identifier)
+			const decoder = typeArguments
+				? ts.createCall(
+					target, undefined,
+					resultMap(ctx, typeArguments, typeArgument => decoderForType(ctx, typeArgument, genericNames, undefined))
+				)
+				: target
+			expressions.push(decoder)
+			break
+		}
+		default:
+			ctx.subsume(ctx.TsNodeErr(expression, "Invalid Heritage Clause", `The "decoder" macro can't handle this type.`))
+			continue
+	}
+	return expressions
+}
+
 function qualifiedToExpression(typeName: ts.EntityName): ts.Expression {
 	return ts.isIdentifier(typeName)
 		? typeName
@@ -308,5 +445,3 @@ function qualifiedToExpression(typeName: ts.EntityName): ts.Expression {
 			typeName.right,
 		)
 }
-
-// TODO should we include an auto decoder for the args of a function? not that hard.

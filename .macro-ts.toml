@@ -1,5 +1,3 @@
-# macros = 'macros/.macros.test.ts'
-
 [[packages]]
 location = 'lib'
 entry = '**/*.ts'

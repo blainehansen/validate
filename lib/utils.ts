@@ -24,10 +24,17 @@ export type Negate<B extends boolean> = B extends true ? false : true
 export type TupleLike<T> = T extends any[] ? Negate<Equivalent<T, any[]>> : false
 
 export type AllTrue<C extends boolean[]> = C extends true[] ? true : false
-export type NoneTrue<C extends boolean[]> = C extends false[] ? true : false
-export type AllFalse<C extends boolean[]> = NoneTrue<C>
+export type AllFalse<C extends boolean[]> = C extends false[] ? true : false
+export type NoneTrue<C extends boolean[]> = AllFalse<C>
 export type NoneFalse<C extends boolean[]> = AllTrue<C>
-export type SomeTrue<C extends boolean[]> = Negate<NoneTrue<C>>
+export type SomeTrue<C extends boolean[]> = Negate<AllFalse<C>>
 export type SomeFalse<C extends boolean[]> = Negate<AllTrue<C>>
 
 export type AllTupleLike<L extends any[]> = AllTrue<{ [K in keyof L]: TupleLike<L[K]> }>
+
+type AbstractConstructorHelper<T> = (new (...args: any) => { [x: string]: any; }) & T
+export type AbstractContructorParameters<T> = ConstructorParameters<AbstractConstructorHelper<T>>
+
+export function isObject(input: unknown): input is NonNullable<Object> {
+	return typeof input === 'object' && input !== null
+}

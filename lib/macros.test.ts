@@ -1,27 +1,34 @@
-import 'mocha'
-import { expect } from 'chai'
-
 import * as c from './decode'
 import { assertType as assert } from './utils.test'
 
 @decodable!!()
-type A = { a: string, b: number }
-// namespace A {
-// 	export const decoder = c.object('A', { a: c.string, b: c.number })
-// }
+type S = string
+assert.same<c.TypeOf<typeof S.decoder>, string>(true)
 
 @decodable!!()
-type G<A, B> = { a: A, b: B }
-// namespace G {
-// 	export function decoder<A, B>(A: c.Decoder<A>, B: c.Decoder<B>) {
-// 		return c.object('A', { a: A, b: B })
-// 	}
-// }
+type A = string[]
+assert.same<c.TypeOf<typeof A.decoder>, string[]>(true)
 
 @decodable!!()
-type GC = G<A, boolean>
-// namespace GC {
-// 	export const decoder = G.decoder(A.decoder, c.boolean)
-// }
+type B = { b: number }
+assert.same<c.TypeOf<typeof B.decoder>, { b: number }>(true)
 
-// describe('macros', )
+@decodable!!()
+type G<L, R> = { left: L, right: R }
+
+@decodable!!()
+type GAB = G<string, number>
+// const g = G.decoder<A, B>(A.decoder, B.decoder)
+// const g: c.TypeOf<typeof GAB.decoder> = { left: ['a'], right: { b: 1 } }
+// assert.same<c.TypeOf<typeof GAB.decoder>, { left: A, right: B }>(true)
+
+const result = GAB.decoder.decode({})
+if (result.isOk()) {
+	const gab: GAB = result.value
+	gab.left.toLowerCase()
+	gab.right.toFixed()
+}
+
+// @decodable!!()
+// type GAboolean = G<A, boolean>
+// assert.same<c.TypeOf<typeof GAboolean.decoder>, { a: string, b: boolean }>(true)
