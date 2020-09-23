@@ -23,9 +23,7 @@ class WrapDecoder<T> extends Decoder<T> {
 	constructor(
 		readonly name: string,
 		readonly decoderFunc: (input: unknown) => Result<T>,
-	) {
-		super()
-	}
+	) { super() }
 
 	decode(input: unknown) {
 		return this.decoderFunc(input)
@@ -33,6 +31,22 @@ class WrapDecoder<T> extends Decoder<T> {
 }
 export function wrap<T>(name: string, decoderFunc: (input: unknown) => Result<T>): Decoder<T> {
 	return new WrapDecoder(name, decoderFunc)
+}
+
+class EnumDecoder<T> extends Decoder<T> {
+	constructor(
+		readonly name: string,
+		readonly decoderFunc: (input: unknown) => T | undefined,
+	) { super() }
+
+	decode(input: unknown): Result<T> {
+		const { name, decoderFunc } = this
+		const result = decoderFunc(input)
+		return result === undefined ? decoderErr(name, input) : Ok(result)
+	}
+}
+export function wrapEnum<T>(name: string, decoderFunc: (input: unknown) => T | undefined): Decoder<T> {
+	return new EnumDecoder(name, decoderFunc)
 }
 
 
@@ -184,7 +198,7 @@ export function union<L extends any[]>(...decoders: DecoderTuple<L>): Decoder<L[
 }
 
 
-type Primitives = string | boolean | number | null | undefined
+type Primitives = string | boolean | number | bigint | null | undefined | void
 class ValuesDecoder<V extends Primitives, L extends V[]> extends Decoder<L[number]> {
 	readonly name: string
 	constructor(readonly values: L) {
@@ -202,7 +216,7 @@ class ValuesDecoder<V extends Primitives, L extends V[]> extends Decoder<L[numbe
 export function literal<V extends Primitives>(value: V): Decoder<V> {
 	return new ValuesDecoder([value] as [V])
 }
-export function literals<V extends Primitives, L extends V[]>(...values: L): Decoder<L[number]> {
+export function literals<L extends Primitives[]>(...values: L): Decoder<L[number]> {
 	return new ValuesDecoder(values)
 }
 
@@ -218,6 +232,7 @@ export function nillable<T>(decoder: Decoder<T>): Decoder<T | null | undefined> 
 
 export const undefinedLiteral = literal(undefined as undefined)
 export const nullLiteral = literal(null as null)
+export const voidLiteral = literal(undefined as void)
 export const trueLiteral = literal(true as true)
 export const falseLiteral = literal(false as false)
 
@@ -344,9 +359,10 @@ export function tuple<L extends any[]>(...decoders: DecoderTuple<L>): Decoder<L>
 	return new TupleDecoder<L, []>(decoders, undefined)
 }
 export function spread<L extends any[], S extends any[]>(
-	decoders: DecoderTuple<L>,
-	spread: Decoder<S>,
+	...args: [...DecoderTuple<L>, Decoder<S>],
 ): Decoder<[...L, ...S]> {
+	const decoders = args.slice(0, args.length - 1) as DecoderTuple<L>
+	const spread = args[args.length - 1] as Decoder<S>
 	return new TupleDecoder<L, S>(decoders, spread)
 }
 

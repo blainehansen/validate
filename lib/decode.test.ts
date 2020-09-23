@@ -469,13 +469,13 @@ describe('tuple', () => it('works', () => {
 	)
 
 	validate<[number, ...string[]]>(
-		c.spread(t(c.number), c.array(c.string)),
+		c.spread(c.number, c.array(c.string)),
 		[[1], [1, 'a'], [1, 'a', 'b'], [1, 'a', 'b', 'c']],
 		[null, undefined, [], [1, 4], [false, 'a', 0], ['a'], { a: 'a' }, true, 'a', 0, 1, -1, -5.5, Infinity, -NaN],
 	)
 
 	validate<[number, boolean?, ...string[]]>(
-		c.spread(t(c.number, c.optional(c.boolean)), c.array(c.string)),
+		c.spread(c.number, c.optional(c.boolean), c.array(c.string)),
 		[[1], [1, undefined], [1, true], [1, true, 'a'], [1, undefined, 'a'], [1, false, 'b']],
 		[null, undefined, [], [1, 4], [false, 'a', 0], ['a'], [1, 'a'], [1, 'a', 'b'], { a: 'a' }, true, 'a', 0, 1, -1, -5.5, Infinity, -NaN],
 	)
