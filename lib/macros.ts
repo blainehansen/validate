@@ -45,7 +45,7 @@ export const decodable = DecoratorMacro((ctx, statement) => {
 
 function decodableForTypeAlias(ctx: MacroContext, alias: ts.TypeAliasDeclaration, isExported: boolean): DecoratorMacroResult {
 	const genericNames = produceGenericNames(alias.typeParameters)
-	const originalAlias = createGenericAlias(alias)
+	const originalAlias = createGenericAlias(alias.name, alias.typeParameters)
 	const decoder = decoderForType(ctx, alias.type, genericNames, originalAlias)
 	if (decoder.isErr()) return ctx.TsNodeErr(...decoder.error)
 
@@ -55,11 +55,14 @@ function decodableForTypeAlias(ctx: MacroContext, alias: ts.TypeAliasDeclaration
 	})
 }
 
-function createGenericAlias(type: ts.TypeAliasDeclaration | ts.InterfaceDeclaration): GenericAlias {
+function createGenericAlias(
+	name: ts.Identifier,
+	typeParameters: ts.NodeArray<ts.TypeParameterDeclaration> | undefined,
+): GenericAlias {
 	return {
-		name: type.name.text, type: ts.createTypeReferenceNode(
-			type.name.text,
-			type.typeParameters ? type.typeParameters.map(typeParameter => ts.createTypeReferenceNode(typeParameter.name.text)) : undefined,
+		name: name.text, type: ts.createTypeReferenceNode(
+			name.text,
+			typeParameters ? typeParameters.map(typeParameter => ts.createTypeReferenceNode(typeParameter.name.text)) : undefined,
 		)
 	}
 }
@@ -67,7 +70,7 @@ function createGenericAlias(type: ts.TypeAliasDeclaration | ts.InterfaceDeclarat
 function decodableForInterface(ctx: MacroContext, declaration: ts.InterfaceDeclaration, isExported: boolean): DecoratorMacroResult {
 	const genericNames = produceGenericNames(declaration.typeParameters)
 	const intersections = declaration.heritageClauses ? intersectionsFromHeritageClauses(ctx, declaration.heritageClauses, genericNames) : undefined
-	const originalAlias = createGenericAlias(declaration)
+	const originalAlias = createGenericAlias(declaration.name, declaration.typeParameters)
 	const decoder = decoderForType(
 		ctx, ts.createTypeLiteralNode(declaration.members), genericNames,
 		intersections ? undefined : originalAlias,
@@ -93,15 +96,18 @@ function decodableForClass(ctx: MacroContext, declaration: ts.ClassDeclaration, 
 		return ctx.TsNodeErr(declaration, "Invalid Anonymous Class", "Decodable classes must have a name.")
 
 	const genericNames = produceGenericNames(declaration.typeParameters)
-	// const originalAlias = createGenericAlias(declaration)
+	const originalAlias = createGenericAlias(declaration.name, declaration.typeParameters)
 	let constructorDecoder: ts.Expression | undefined = undefined
 	for (const member of declaration.members) switch (member.kind) {
 		case SyntaxKind.Constructor: {
-			const decoder = createDecoderForArgs(ctx, (member as ts.ConstructorDeclaration).parameters, genericNames)
-			if (decoder.isErr()) return ctx.TsNodeErr(...decoder.error)
-			// TODO this doesn't do the right thing, at this point it's only decoding the args, but we need a combinator to instantiate the class
-			constructorDecoder = decoder.value
-			// constructorDecoder = createCombinatorCall('cls', [decoder.value.typeArguments!, originalAlias.type], [declaration.name, decoder.value])
+			const decoderResult = createDecoderForArgs(ctx, (member as ts.ConstructorDeclaration).parameters, genericNames)
+			if (decoderResult.isErr()) return ctx.TsNodeErr(...decoderResult.error)
+
+			const [decoder, argsTupleType] = decoderResult.value
+			constructorDecoder = createCombinatorCall(
+				'cls', [argsTupleType, originalAlias.type],
+				[declaration.name, decoder],
+			)
 			break
 		}
 		default: continue
@@ -157,30 +163,22 @@ function decodableForFunction(ctx: MacroContext, declaration: ts.FunctionDeclara
 		return ctx.TsNodeErr(declaration, "Invalid Anonymous Function", "Decodable functions must have a name.")
 
 	const genericNames = produceGenericNames(declaration.typeParameters)
-	const decoder = createDecoderForArgs(ctx, declaration.parameters, genericNames)
-	if (decoder.isErr()) return ctx.TsNodeErr(...decoder.error)
+	const decoderResult = createDecoderForArgs(ctx, declaration.parameters, genericNames)
+	if (decoderResult.isErr()) return ctx.TsNodeErr(...decoderResult.error)
+	const [decoder, ] = decoderResult.value
 
 	return ctx.Ok({
 		replacement: declaration,
-		append: [createDecoderModule(isExported, declaration.name, declaration.typeParameters, decoder.value)],
+		append: [createDecoderModule(isExported, declaration.name, declaration.typeParameters, decoder)],
 	})
 }
 
-function tupleOrSpread(
-	tupleArgs: ts.Expression[],
-	spreadArg: ts.Expression | undefined,
-	typeArguments: ts.TypeNode[],
-): ts.CallExpression {
-	return spreadArg
-		? createCombinatorCall('spread', typeArguments, tupleArgs.concat([spreadArg]))
-		: createCombinatorCall('tuple', typeArguments, tupleArgs)
-}
 
 function createDecoderForArgs(
 	ctx: MacroContext,
 	parameters: ts.NodeArray<ts.ParameterDeclaration>,
 	genericNames: Set<string> | undefined
-): NodeResult<ts.CallExpression> {
+): NodeResult<[ts.CallExpression, ts.TupleTypeNode]> {
 	const tupleArgs: ts.Expression[] = []
 	const tupleTypeArgs: ts.TypeNode[] = []
 	let spreadArg: ts.Expression | undefined = undefined
@@ -206,10 +204,25 @@ function createDecoderForArgs(
 	}
 
 	const typeArgs: ts.TypeNode[] = [ts.createTupleTypeNode(tupleTypeArgs)]
-	if (spreadTypeArg)
+	const argsTupleTypeArgs: ts.TypeNode[] = tupleTypeArgs.slice()
+	if (spreadTypeArg) {
 		typeArgs.push(spreadTypeArg)
-	return Ok(tupleOrSpread(tupleArgs, spreadArg, typeArgs))
+		argsTupleTypeArgs.push(ts.createRestTypeNode(spreadTypeArg))
+	}
+	const argsTupleType = ts.createTupleTypeNode(argsTupleTypeArgs)
+	return Ok([tupleOrSpread(tupleArgs, spreadArg, typeArgs), argsTupleType])
 }
+
+function tupleOrSpread(
+	tupleArgs: ts.Expression[],
+	spreadArg: ts.Expression | undefined,
+	typeArguments: ts.TypeNode[],
+): ts.CallExpression {
+	return spreadArg
+		? createCombinatorCall('spread', typeArguments, tupleArgs.concat([spreadArg]))
+		: createCombinatorCall('tuple', typeArguments, tupleArgs)
+}
+
 
 function createDecoderModule(
 	isExported: boolean, name: ts.Identifier,
@@ -329,26 +342,35 @@ function decoderForType(
 				if (genericNames && genericNames.has(typeName))
 					return Ok(node.typeName)
 
+				function createWrapCombinator(combinatorName: string, typeNode: ts.TypeNode): NodeResult<ts.Expression> {
+					const inner = decoderForType(ctx, typeNode, genericNames, undefined)
+					if (inner.isErr()) return inner
+					return Ok(createCombinatorCall(combinatorName, node.typeArguments, [inner.value]))
+				}
+
 				switch (typeName) {
 					case 'Array':
 						if (node.typeArguments && node.typeArguments.length === 1)
 							return decoderForType(ctx, ts.createArrayTypeNode(node.typeArguments[0]), genericNames, undefined)
-					// case 'Partial'<Type>:
-					// case 'Readonly'<Type>:
+						break
+
+					case 'Partial': case 'Required': case 'Readonly': case 'NonNullable':
+						if (node.typeArguments && node.typeArguments.length === 1)
+							return createWrapCombinator(typeName.toLowerCase(), node.typeArguments[0])
+						break
+
+					case 'Dict':
+						if (node.typeArguments && node.typeArguments.length === 1)
+							return createWrapCombinator('dictionary', node.typeArguments[0])
+						break
+
 					// case 'Record'<Keys,Type>:
 					// case 'Pick'<Type, Keys>:
 					// case 'Omit'<Type, Keys>:
 					// case 'Exclude'<Type, ExcludedUnion>:
 					// case 'Extract'<Type, Union>:
-					// case 'NonNullable'<Type>:
 					// case 'Parameters'<Type>:
 					// case 'ConstructorParameters'<Type>:
-					// case 'ReturnType'<Type>:
-					// case 'InstanceType'<Type>:
-					// case 'Required'<Type>:
-					// case 'ThisParameterType'<Type>:
-					// case 'OmitThisParameter'<Type>:
-					// case 'ThisType'<Type>:
 
 					default: break
 				}
@@ -522,7 +544,7 @@ function createOptional(isOptional: boolean, decoder: ts.Expression) {
 
 function createCombinatorCall(
 	combinator: string,
-	typeArguments: ts.TypeNode[] | undefined,
+	typeArguments: readonly ts.TypeNode[] | undefined,
 	args: ts.Expression[]) {
 	return ts.createCall(
 		ts.createPropertyAccess(ts.createIdentifier('c'), ts.createIdentifier(combinator)),

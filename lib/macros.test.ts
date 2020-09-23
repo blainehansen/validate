@@ -153,35 +153,43 @@ class BasicClass {
 		c: number,
 	) { this.c = c === 0 }
 }
-assert.same<c.TypeOf<typeof BasicClass.decoder>, [string, boolean, number]>(true)
-// assert.same<c.TypeOf<typeof BasicClass.decoder>, BasicClass>(true)
+assert.same<c.TypeOf<typeof BasicClass.decoder>, BasicClass>(true)
 
 @decodable!!()
 class GenericClass<L, R> {
-	constructor(
-		readonly left: L,
-		readonly right: R,
-	) {}
+ constructor(
+   readonly left: L,
+   readonly right: R,
+ ) {}
 }
-assert.same<typeof GenericClass.decoder, <L, R>(left: c.Decoder<L>, right: c.Decoder<R>) => c.Decoder<[L, R]>>(true)
-// assert.same<typeof GenericClass.decoder, <L, R>(left: c.Decoder<L>, right: c.Decoder<R>) => c.Decoder<GenericClass<L, R>>>(true)
+assert.same<typeof GenericClass.decoder, <L, R>(left: c.Decoder<L>, right: c.Decoder<R>) => c.Decoder<GenericClass<L, R>>>(true)
+
+@decodable!!()
+class GenericClassSpread<L, R extends any[]> {
+	right: R
+ constructor(
+   readonly left: L,
+   ...right: R,
+ ) { this.right = right }
+}
+assert.same<typeof GenericClassSpread.decoder, <L, R extends any[]>(left: c.Decoder<L>, right: c.Decoder<R>) => c.Decoder<GenericClassSpread<L, R>>>(true)
 
 // TODO does the failure here mean this variety just isn't realistic?
 // @decodable!!()
 // class ComplexClass extends BasicClass {
-// 	constructor(
-// 		a: string,
-// 		b: boolean,
-// 		c: number,
-// 		readonly stuff: { a: number }[],
-// 	) { super(a, b, c) }
+//  constructor(
+//    a: string,
+//    b: boolean,
+//    c: number,
+//    readonly stuff: { a: number }[],
+//  ) { super(a, b, c) }
 // }
 // assert.same<c.TypeOf<typeof ComplexClass.decoder>, [string, boolean, number, { a: number }[]]>(true)
 
 
 // @decodable!!()
 // export class ConstructorLessClass extends BasicClass {
-// 	yoyo() { return this.b && this.c }
+//  yoyo() { return this.b && this.c }
 // }
 // assert.same<c.TypeOf<typeof ConstructorLessClass.decoder>, [string, boolean, number]>(true)
 
@@ -222,3 +230,4 @@ assert.same<c.TypeOf<typeof InitializedNumericEnum.decoder>, InitializedNumericE
 @decodable!!()
 export enum HeterogeneousEnum { a = 2, b = 'b', c = 5 }
 assert.same<c.TypeOf<typeof HeterogeneousEnum.decoder>, HeterogeneousEnum>(true)
+

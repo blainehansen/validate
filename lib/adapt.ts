@@ -57,27 +57,3 @@ export function tryAdaptor<U, T>(decoder: Decoder<U>, func: (input: U) => Result
 }
 
 // TODO various adaptors for common datatypes
-
-interface Constructable<L extends any[], T> {
-	new (...args: L): T
-}
-class ClassDecoder<T> extends Decoder<T> {
-	readonly name: string
-	constructor(readonly clz: Constructable<any[], T>) {
-		super()
-		this.name = clz.name
-	}
-
-	decode(input: unknown) {
-		return input instanceof this.clz ? Ok(input) : Err(`expected instanceof ${this.name}, got ${input}`)
-	}
-}
-export function cls<L extends any[], T>(
-	clz: Constructable<L, T>,
-	argsDecoder: Decoder<L>,
-): Decoder<T> {
-	return new AdaptorDecoder(
-		new ClassDecoder(clz as Constructable<any[], T>),
-		[{ isFallible: false as const, decoder: argsDecoder, func: args => new clz(...args) }],
-	)
-}

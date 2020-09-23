@@ -2,6 +2,8 @@ import { Result, Ok, Err, Maybe, Some, None } from '@blainehansen/monads'
 
 import { Dict, Cast, TupleIntersection, FilteredTupleIntersection, TupleLike, isObject } from './utils'
 
+export * from './adapt'
+
 export abstract class Decoder<T> {
 	abstract readonly name: string
 	abstract decode(input: unknown): Result<T>
@@ -47,6 +49,33 @@ class EnumDecoder<T> extends Decoder<T> {
 }
 export function wrapEnum<T>(name: string, decoderFunc: (input: unknown) => T | undefined): Decoder<T> {
 	return new EnumDecoder(name, decoderFunc)
+}
+
+interface Constructable<L extends any[], T> {
+	new (...args: L): T
+}
+class ClassDecoder<L extends any[], T> extends Decoder<T> {
+	readonly name: string
+	constructor(
+		readonly clz: Constructable<L, T>,
+		readonly constructorArgsDecoder: Decoder<L>,
+	) {
+		super()
+		this.name = clz.name
+	}
+
+	decode(input: unknown): Result<T> {
+		const { name, clz, constructorArgsDecoder } = this
+		if (input instanceof clz) return Ok(input)
+
+		const argsResult = constructorArgsDecoder.decode(input)
+		return argsResult.isErr()
+			? Err(`expected instance of or args to construct ${name}, got ${input}`)
+			: Ok(new clz(...argsResult.value))
+	}
+}
+export function cls<L extends any[], T>(clz: Constructable<L, T>, constructorArgsDecoder: Decoder<L>): Decoder<T> {
+	return new ClassDecoder(clz, constructorArgsDecoder)
 }
 
 
@@ -359,7 +388,7 @@ export function tuple<L extends any[]>(...decoders: DecoderTuple<L>): Decoder<L>
 	return new TupleDecoder<L, []>(decoders, undefined)
 }
 export function spread<L extends any[], S extends any[]>(
-	...args: [...DecoderTuple<L>, Decoder<S>],
+	...args: [...DecoderTuple<L>, Decoder<S>]
 ): Decoder<[...L, ...S]> {
 	const decoders = args.slice(0, args.length - 1) as DecoderTuple<L>
 	const spread = args[args.length - 1] as Decoder<S>
@@ -510,4 +539,110 @@ export function intersection<L extends any[]>(...decoders: DecoderTuple<L>): Dec
 	return new IntersectionDecoder<L>(finalDecoders)
 }
 
-export * from './adapt'
+
+export function partial<T>(decoder: Decoder<T>): Decoder<Partial<T>> {
+	if (decoder instanceof ObjectDecoder) {
+		const finalKeyDecoders = {} as DecoderObject<Partial<T>>
+		for (const key in decoder.decoders) {
+			const keyDecoder = decoder.decoders[key]
+			finalKeyDecoders[key as keyof DecoderObject<Partial<T>>] = partialWrapOptional(keyDecoder)
+		}
+		return new ObjectDecoder([finalKeyDecoders])
+	}
+
+	if (decoder instanceof ArrayDecoder)
+		return decoder.decoder instanceof OptionalDecoder
+			? decoder
+			: new ArrayDecoder(new OptionalDecoder(decoder.decoder)) as unknown as Decoder<Partial<T>>
+
+	if (decoder instanceof TupleDecoder) {
+		const finalIndexDecoders = (decoder.decoders as unknown as Decoder<any>[]).map(partialWrapOptional)
+		return new TupleDecoder(
+			finalIndexDecoders,
+			decoder.spread ? partial(decoder.spread) as Decoder<any[]> : undefined,
+		) as unknown as Decoder<Partial<T>>
+	}
+
+	if (decoder instanceof DictionaryDecoder)
+		return decoder.decoder instanceof OptionalDecoder
+			? decoder
+			: new DictionaryDecoder(new OptionalDecoder(decoder.decoder)) as unknown as Decoder<Partial<T>>
+
+	if (decoder instanceof UnionDecoder)
+		return new UnionDecoder((decoder.decoders as unknown as Decoder<any>[]).map(partial))
+
+	if (decoder instanceof IntersectionDecoder)
+		return new IntersectionDecoder((decoder.decoders as unknown as Decoder<any>[]).map(partial))
+
+	// if (decoder instanceof ClassDecoder)
+	return decoder
+}
+function partialWrapOptional<T>(decoder: Decoder<T>): Decoder<T | undefined> {
+	return decoder instanceof OptionalDecoder ? decoder : new OptionalDecoder(decoder)
+}
+
+
+export function required<T>(decoder: Decoder<T>): Decoder<Required<T>> {
+	if (decoder instanceof ObjectDecoder) {
+		const finalKeyDecoders = {} as DecoderObject<Required<T>>
+		for (const key in decoder.decoders) {
+			const keyDecoder = decoder.decoders[key]
+			finalKeyDecoders[key as keyof DecoderObject<Required<T>>] = requiredUnwrapOptional(keyDecoder)
+		}
+		return new ObjectDecoder([finalKeyDecoders])
+	}
+
+	if (decoder instanceof ArrayDecoder)
+		return new ArrayDecoder(requiredUnwrapOptional(decoder.decoder)) as unknown as Decoder<Required<T>>
+
+	if (decoder instanceof TupleDecoder) {
+		const finalIndexDecoders = (decoder.decoders as unknown as Decoder<any>[]).map(requiredUnwrapOptional)
+		return new TupleDecoder(
+			finalIndexDecoders,
+			decoder.spread ? required(decoder.spread) as Decoder<any[]> : undefined,
+		) as unknown as Decoder<Required<T>>
+	}
+
+	if (decoder instanceof DictionaryDecoder)
+		return new DictionaryDecoder(requiredUnwrapOptional(decoder.decoder)) as unknown as Decoder<Required<T>>
+
+	if (decoder instanceof UnionDecoder)
+		return new UnionDecoder((decoder.decoders as unknown as Decoder<any>[]).map(required))
+
+	if (decoder instanceof IntersectionDecoder)
+		return new IntersectionDecoder((decoder.decoders as unknown as Decoder<any>[]).map(required)) as unknown as Decoder<Required<T>>
+
+	// if (decoder instanceof ClassDecoder)
+	return decoder as Decoder<Required<T>>
+}
+function requiredUnwrapOptional<T>(decoder: Decoder<T>): Decoder<T | undefined> {
+	return decoder instanceof OptionalDecoder ? decoder.decoder : decoder
+}
+
+
+export function nonnullable<T>(decoder: Decoder<T | null | undefined>): Decoder<T> {
+	if (decoder instanceof OptionalDecoder)
+		return nonnullable(decoder.decoder)
+	if (decoder instanceof ValuesDecoder)
+		return new ValuesDecoder(decoder.values.filter((value: Primitives) => value !== null && value !== undefined)) as Decoder<T>
+
+	if (decoder instanceof UnionDecoder) {
+		const finalDecoders = (decoder as UnionDecoder<unknown[]>).decoders
+			.filter(decoder => decoder !== undefinedLiteral && decoder !== nullLiteral)
+
+		return finalDecoders.length === 1
+			? finalDecoders[0] as unknown as Decoder<T>
+			: new UnionDecoder(finalDecoders)
+	}
+
+	return decoder as Decoder<T>
+}
+
+export function readonly<T>(decoder: Decoder<T>): Decoder<Readonly<T>> {
+	return decoder
+}
+
+
+// export function record<K extends string | number | symbol, T>(keys: K[], decoder: Decoder<T>): Decoder<Record<K, T>> {
+// 	for (const key of keys)
+// }
