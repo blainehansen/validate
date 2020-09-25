@@ -122,7 +122,7 @@ assert.never<c.TypeOf<typeof BadIntersection.decoder>>(true)
 
 @decodable!!()
 type G<L, R> = { left: L, right: R }
-assert.same<typeof G.decoder, <L, R>(left: c.Decoder<L>, right: c.Decoder<R>) => c.ExactDecoder<G<L, R>>>(true)
+assert.same<typeof G.decoder, <L, R>(left: c.Decoder<L>, right: c.Decoder<R>) => c.Decoder<G<L, R>>>(true)
 
 @decodable!!()
 type GStringBoolean = G<string, number>
@@ -131,6 +131,15 @@ assert.same<c.TypeOf<typeof GStringBoolean.decoder>, { left: string, right: numb
 @decodable!!()
 type GPrimBoolean = G<PrimitiveArray, boolean>
 assert.same<c.TypeOf<typeof GPrimBoolean.decoder>, { left: string[], right: boolean }>(true)
+
+
+// @decodable!!()
+// export type BasicFunc = (a: string, b: boolean) => number
+// assert.same<typeof BasicFunc.decoder, (fn: BasicFunc) => c.Decoder<number>>(true)
+
+// @decodable!!()
+// type GenericFunc<T, U> = (a: T, b: boolean) => U
+// assert.same<typeof GenericFunc.decoder, <T, U>(T: c.Decoder<T>, U: c.Decoder<U>) => (fn: GenericFunc<T, U>) => c.Decoder<U>>(true)
 
 
 @decodable!!()
@@ -146,12 +155,12 @@ assert.same<c.TypeOf<typeof InterfaceArray.decoder>, InterfaceArray>(true)
 
 @decodable!!()
 class BasicClass {
-	c: boolean
-	constructor(
-		readonly a: string,
-		public b: boolean,
-		c: number,
-	) { this.c = c === 0 }
+  c: boolean
+  constructor(
+    readonly a: string,
+    public b: boolean,
+    c: number,
+  ) { this.c = c === 0 }
 }
 assert.same<c.TypeOf<typeof BasicClass.decoder>, BasicClass>(true)
 
@@ -166,7 +175,7 @@ assert.same<typeof GenericClass.decoder, <L, R>(left: c.Decoder<L>, right: c.Dec
 
 @decodable!!()
 class GenericClassSpread<L, R extends any[]> {
-	right: R
+  right: R
  constructor(
    readonly left: L,
    ...right: R,
@@ -195,20 +204,33 @@ assert.same<typeof GenericClassSpread.decoder, <L, R extends any[]>(left: c.Deco
 
 
 @decodable!!()
-function basicFunction(a: string, b: { c: boolean[] }) {}
-assert.same<c.TypeOf<typeof basicFunction.decoder>, [string, { c: boolean[] }]>(true)
+function basicFunction(a: string, b: { c: boolean[] }) { return 'a' as const }
+// assert.same<c.TypeOf<typeof basicFunction.decoder>, [string, { c: boolean[] }]>(true)
+assert.same<c.TypeOf<typeof basicFunction.decoder>, ReturnType<typeof basicFunction>>(true)
+assert.same<c.TypeOf<typeof basicFunction.decoder>, 'a'>(true)
 
 @decodable!!()
-function functionWithOptional(a: string, c?: number) {}
-assert.same<c.TypeOf<typeof functionWithOptional.decoder>, [string, number?]>(true)
+export function functionGeneric<T>(a: T, ...ns: number[]): T { return a }
+// const n: typeof functionGeneric.decoder = undefined
+assert.same<typeof functionGeneric.decoder, <T>(T: c.Decoder<T>) => c.Decoder<T>>(true)
 
 @decodable!!()
-function functionWithDefault(a: string, c: number = 1) {}
-assert.same<c.TypeOf<typeof functionWithDefault.decoder>, [string, number?]>(true)
+function functionWithOptional(a: string, c?: number) { return 'b' as const }
+// assert.same<c.TypeOf<typeof functionWithOptional.decoder>, [string, number?]>(true)
+assert.same<c.TypeOf<typeof functionWithOptional.decoder>, ReturnType<typeof functionWithOptional>>(true)
+assert.same<c.TypeOf<typeof functionWithOptional.decoder>, 'b'>(true)
 
 @decodable!!()
-export function functionWithSpread(a: string, ...ns: number[]) {}
-assert.same<c.TypeOf<typeof functionWithSpread.decoder>, [string, ...number[]]>(true)
+function functionWithDefault(a: string, c: number = 1) { return 'c' as const }
+// assert.same<c.TypeOf<typeof functionWithDefault.decoder>, [string, number?]>(true)
+assert.same<c.TypeOf<typeof functionWithDefault.decoder>, ReturnType<typeof functionWithDefault>>(true)
+assert.same<c.TypeOf<typeof functionWithDefault.decoder>, 'c'>(true)
+
+@decodable!!()
+export function functionWithSpread(a: string, ...ns: number[]) { return 'd' as const }
+// assert.same<c.TypeOf<typeof functionWithSpread.decoder>, [string, ...number[]]>(true)
+assert.same<c.TypeOf<typeof functionWithSpread.decoder>, ReturnType<typeof functionWithSpread>>(true)
+assert.same<c.TypeOf<typeof functionWithSpread.decoder>, 'd'>(true)
 
 
 @decodable!!()
@@ -223,11 +245,10 @@ assert.same<c.TypeOf<typeof SpecifiedNumericEnum.decoder>, SpecifiedNumericEnum>
 enum InitializedNumericEnum { a = 2, b, c }
 assert.same<c.TypeOf<typeof InitializedNumericEnum.decoder>, InitializedNumericEnum>(true)
 
-// @decodable!!()
-// enum Yoyoyoyo { a = 'a', b = 'b', c = 'c' }
-// assert.same<c.TypeOf<typeof Yoyoyoyo.decoder>, Yoyoyoyo>(true)
+@decodable!!()
+enum Yoyoyoyo { a = 'a', b = 'b', c = 'c' }
+assert.same<c.TypeOf<typeof Yoyoyoyo.decoder>, Yoyoyoyo>(true)
 
 @decodable!!()
 export enum HeterogeneousEnum { a = 2, b = 'b', c = 5 }
 assert.same<c.TypeOf<typeof HeterogeneousEnum.decoder>, HeterogeneousEnum>(true)
-

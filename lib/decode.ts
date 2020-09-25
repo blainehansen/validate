@@ -2,8 +2,6 @@ import { Result, Ok, Err, Maybe, Some, None } from '@blainehansen/monads'
 
 import { Dict, Cast, TupleIntersection, FilteredTupleIntersection, TupleLike, isObject } from './utils'
 
-export * from './adapt'
-
 export abstract class Decoder<T> {
 	abstract readonly name: string
 	abstract decode(input: unknown): Result<T>
@@ -51,15 +49,34 @@ export function wrapEnum<T>(name: string, decoderFunc: (input: unknown) => T | u
 	return new EnumDecoder(name, decoderFunc)
 }
 
-interface Constructable<L extends any[], T> {
+
+type Func<L extends any[], T> = (...args: L) => T
+class FunctionDecoder<L extends any[], T> extends Decoder<T> {
+	readonly name: string
+	constructor(readonly fn: Func<L, T>, readonly argsDecoder: Decoder<L>) {
+		super()
+		this.name = fn.name
+	}
+
+	decode(input: unknown): Result<T> {
+		const { name, fn, argsDecoder } = this
+		const argsResult = argsDecoder.decode(input)
+		return argsResult.isErr()
+			? Err(`expected args to call ${name}, got ${input}`)
+			: Ok(fn(...argsResult.value))
+	}
+}
+export function func<L extends any[], T>(fn: Func<L, T>, argsDecoder: Decoder<L>): Decoder<T> {
+	return new FunctionDecoder(fn, argsDecoder)
+}
+
+
+export interface Constructable<L extends any[], T> {
 	new (...args: L): T
 }
 class ClassDecoder<L extends any[], T> extends Decoder<T> {
 	readonly name: string
-	constructor(
-		readonly clz: Constructable<L, T>,
-		readonly constructorArgsDecoder: Decoder<L>,
-	) {
+	constructor(readonly clz: Constructable<L, T>, readonly constructorArgsDecoder: Decoder<L>) {
 		super()
 		this.name = clz.name
 	}
@@ -341,6 +358,31 @@ export function dictionary<T>(decoder: Decoder<T>): Decoder<Dict<T>> {
 }
 
 
+class RecordDecoder<K extends string | number | symbol, T> extends Decoder<Record<K, T>> {
+	readonly name: string
+	constructor(readonly keys: K[], readonly decoder: Decoder<T>) {
+		super()
+		this.name = `Record<${keys.map(key => typeof key === 'string' ? `"${key}"` : key).join(' | ')}, ${decoder.name}>`
+	}
+
+	decode(input: unknown): Result<Record<K, T>> {
+		const { name, keys, decoder } = this
+		if (!isObject(input)) return decoderErr(name, input)
+
+		for (const key of keys) {
+			const value = (input as any)[key]
+			const result = decoder.decode(value)
+			if (result.isErr()) return Err(`in ${name}, invalid key ${key}, got ${value}, error: ${result.error}`)
+		}
+
+		return Ok(input as Record<K, T>)
+	}
+}
+export function record<K extends string | number | symbol, T>(keys: K[], decoder: Decoder<T>): Decoder<Record<K, T>> {
+	return new RecordDecoder(keys, decoder)
+}
+
+
 class TupleDecoder<L extends any[], S extends any[] = []> extends Decoder<[...L, ...S]> {
 	readonly name: string
 	readonly minLength: number
@@ -464,29 +506,22 @@ class IntersectionDecoder<L extends any[]> extends Decoder<TupleIntersection<L>>
 
 	decode(input: unknown): Result<TupleIntersection<L>> {
 		const { name, decoders } = this
-		// console.log('decoders:', decoders)
 		for (const decoder of this.decoders) {
-			// console.log('decoder:', decoder)
 			const result = decoder.decode(input)
-			// console.log('result:', result)
 			if (result.isErr()) return Err(`expected ${name}, got ${input}: ${result.error}`)
 		}
 		return Ok(input as TupleIntersection<L>)
 	}
 }
 export function intersection<L extends any[]>(...decoders: DecoderTuple<L>): Decoder<TupleIntersection<L>> {
-	// console.log('')
-	// console.log('entering intersection')
 	const objectDecoders = [] as UnknownObjectDecoder[]
 	const arrayDecoders = [] as UnknownArrayDecoder[]
 	const unionDecoders = [] as UnknownUnionDecoder[]
 	const otherDecoders = [] as Decoder<unknown>[]
 
 	const decodersQueue = decoders.slice()
-	// console.log('decodersQueue:', decodersQueue)
 	let decoder
 	while (decoder = decodersQueue.shift()) {
-		// console.log('in loop:', decoder)
 		if (decoder instanceof ObjectDecoder) objectDecoders.push(decoder)
 		else if (decoder instanceof ArrayDecoder) arrayDecoders.push(decoder)
 		else if (decoder instanceof UnionDecoder) unionDecoders.push(decoder)
@@ -494,23 +529,16 @@ export function intersection<L extends any[]>(...decoders: DecoderTuple<L>): Dec
 			Array.prototype.push.apply(decodersQueue, decoder.decoders as unknown as Decoder<unknown>[])
 		else otherDecoders.push(decoder)
 	}
-	// console.log('objectDecoders:', objectDecoders)
-	// console.log('arrayDecoders:', arrayDecoders)
-	// console.log('unionDecoders:', unionDecoders)
-	// console.log('otherDecoders:', otherDecoders)
 
 	if (unionDecoders.length) {
 		const finalUnionDecoders = [] as Decoder<unknown>[]
 		const [unionDecoder, ...rest] = unionDecoders
-		// console.log('unionDecoder:', unionDecoder)
-		// console.log('rest:', rest)
 		for (const decoder of unionDecoder.decoders) {
 			finalUnionDecoders.push(intersection(
 				decoder,
 				...rest, ...objectDecoders, ...arrayDecoders, ...otherDecoders,
 			))
 		}
-		// console.log('finalUnionDecoders:', finalUnionDecoders)
 		return new UnionDecoder(finalUnionDecoders)
 	}
 
@@ -643,6 +671,30 @@ export function readonly<T>(decoder: Decoder<T>): Decoder<Readonly<T>> {
 }
 
 
-// export function record<K extends string | number | symbol, T>(keys: K[], decoder: Decoder<T>): Decoder<Record<K, T>> {
-// 	for (const key of keys)
-// }
+export function pick<T, K extends keyof T>(decoder: Decoder<T>, keys: K[]): Decoder<Pick<T, K>> {
+	// it's absurd to try to replicate the behavior of Pick in a spread tuple
+	if (decoder instanceof ObjectDecoder || decoder instanceof TupleDecoder) {
+		const finalKeyDecoders = {} as DecoderObject<Pick<T, K>>
+		for (const key of keys)
+			finalKeyDecoders[key] = decoder.decoders[key]
+		return new ObjectDecoder([finalKeyDecoders])
+	}
+
+	return decoder
+}
+
+export function omit<T, K extends keyof T>(decoder: Decoder<T>, keys: K[]): Decoder<Omit<T, K>> {
+	if (decoder instanceof ObjectDecoder || decoder instanceof TupleDecoder) {
+		const finalKeyDecoders = {} as DecoderObject<Omit<T, K>>
+		for (const key in decoder.decoders) {
+			if (keys.includes(key as K)) continue
+			finalKeyDecoders[key as keyof DecoderObject<Omit<T, K>>] = decoder.decoders[key]
+		}
+		return new ObjectDecoder([finalKeyDecoders])
+	}
+
+	return decoder
+}
+
+
+export * from './adapt'
