@@ -1,311 +1,311 @@
-// import * as c from './decode'
-// import { Dict } from './utils'
-// import { assertType as assert } from './utils.test'
+import * as c from './decode'
+import { Dict } from './utils'
+import { assertType as assert } from './utils.test'
 
-// @decodable!!()
-// type BasicPrimitive = string
-// assert.same<c.TypeOf<typeof BasicPrimitive.decoder>, string>(true)
-
-
-// @decodable!!()
-// type PrimitiveArray = string[]
-// assert.same<c.TypeOf<typeof PrimitiveArray.decoder>, string[]>(true)
-
-// @decodable!!()
-// type ArrayAsReference = Array<string>
-// assert.same<c.TypeOf<typeof ArrayAsReference.decoder>, string[]>(true)
-
-// @decodable!!()
-// type PartialReference = Partial<{ a: string, b: number | undefined }>
-// assert.same<c.TypeOf<typeof PartialReference.decoder>, Partial<{ a: string, b: number | undefined }>>(true)
-// assert.same<c.TypeOf<typeof PartialReference.decoder>, { a?: string, b?: number | undefined }>(true)
-
-// @decodable!!()
-// type RequiredReference = Required<{ a: string, b?: number, c: boolean | undefined, d?: boolean | undefined }>
-// assert.same<c.TypeOf<typeof RequiredReference.decoder>, Required<{ a: string, b?: number, c: boolean | undefined, d?: boolean | undefined }>>(true)
-// assert.same<c.TypeOf<typeof RequiredReference.decoder>, { a: string, b: number, c: boolean | undefined, d: boolean }>(true)
-
-// @decodable!!()
-// type ReadonlyReference = Readonly<{ a: string, b: number }>
-// assert.same<c.TypeOf<typeof ReadonlyReference.decoder>, Readonly<{ a: string, b: number }>>(true)
-// assert.same<c.TypeOf<typeof ReadonlyReference.decoder>, { readonly a: string, readonly b: number }>(true)
-
-// @decodable!!()
-// type NonNullableReference = NonNullable<string | null | undefined>
-// assert.same<c.TypeOf<typeof NonNullableReference.decoder>, NonNullable<string | null | undefined>>(true)
-// assert.same<c.TypeOf<typeof NonNullableReference.decoder>, string>(true)
-
-// @decodable!!()
-// type DictReference = Dict<number>
-// assert.same<c.TypeOf<typeof DictReference.decoder>, Dict<number>>(true)
-// assert.same<c.TypeOf<typeof DictReference.decoder>, { [key: string]: number }>(true)
-
-// @decodable!!()
-// type PickAB = Pick<{ a: number, b: string, c: boolean }, 'a' | 'b'>
-// assert.same<c.TypeOf<typeof PickAB.decoder>, Pick<{ a: number, b: string, c: boolean }, 'a' | 'b'>>(true)
-// assert.same<c.TypeOf<typeof PickAB.decoder>, { a: number, b: string }>(true)
-
-// @decodable!!()
-// type PickA = Pick<{ a: number, b: string, c: boolean }, 'a'>
-// assert.same<c.TypeOf<typeof PickA.decoder>, Pick<{ a: number, b: string, c: boolean }, 'a'>>(true)
-// assert.same<c.TypeOf<typeof PickA.decoder>, { a: number }>(true)
-
-// @decodable!!()
-// type OmitAB = Omit<{ a: number, b: string, c: boolean }, 'a' | 'b'>
-// assert.same<c.TypeOf<typeof OmitAB.decoder>, Omit<{ a: number, b: string, c: boolean }, 'a' | 'b'>>(true)
-// assert.same<c.TypeOf<typeof OmitAB.decoder>, { c: boolean }>(true)
-
-// @decodable!!()
-// type OmitA = Omit<{ a: number, b: string, c: boolean }, 'a'>
-// assert.same<c.TypeOf<typeof OmitA.decoder>, Omit<{ a: number, b: string, c: boolean }, 'a'>>(true)
-// assert.same<c.TypeOf<typeof OmitA.decoder>, { b: string, c: boolean }>(true)
-
-// @decodable!!()
-// type RecordAB = Record<'a' | 'b', string>
-// assert.same<c.TypeOf<typeof RecordAB.decoder>, Record<'a' | 'b', string>>(true)
-// assert.same<c.TypeOf<typeof RecordAB.decoder>, { a: string, b: string }>(true)
-
-// @decodable!!()
-// type RecordA = Record<'a', string>
-// assert.same<c.TypeOf<typeof RecordA.decoder>, Record<'a', string>>(true)
-// assert.same<c.TypeOf<typeof RecordA.decoder>, { a: string }>(true)
-
-// @decodable!!()
-// type ReferenceArray = BasicPrimitive[]
-// assert.same<c.TypeOf<typeof ReferenceArray.decoder>, BasicPrimitive[]>(true)
-// assert.same<c.TypeOf<typeof ReferenceArray.decoder>, string[]>(true)
-
-// @decodable!!()
-// type ObjectArray = { a: string }[]
-// assert.same<c.TypeOf<typeof ObjectArray.decoder>, { a: string }[]>(true)
-
-// @decodable!!()
-// type UnionArray = (string | boolean)[]
-// assert.same<c.TypeOf<typeof UnionArray.decoder>, (string | boolean)[]>(true)
+@decodable!!()
+type BasicPrimitive = string
+assert.same<c.TypeOf<typeof BasicPrimitive.decoder>, string>(true)
 
 
-// @decodable!!()
-// type SimpleObject = { b: number }
-// assert.same<c.TypeOf<typeof SimpleObject.decoder>, { b: number }>(true)
+@decodable!!()
+type PrimitiveArray = string[]
+assert.same<c.TypeOf<typeof PrimitiveArray.decoder>, string[]>(true)
 
-// @decodable!!()
-// type NestedObject = { b: number, c: { s: string } }
-// assert.same<c.TypeOf<typeof NestedObject.decoder>, { b: number, c: { s: string } }>(true)
+@decodable!!()
+type ArrayAsReference = Array<string>
+assert.same<c.TypeOf<typeof ArrayAsReference.decoder>, string[]>(true)
 
-// @decodable!!()
-// type ObjectWithOptionals = { b: number, c?: boolean }
-// assert.same<c.TypeOf<typeof ObjectWithOptionals.decoder>, { b: number, c?: boolean }>(true)
+@decodable!!()
+type PartialReference = Partial<{ a: string, b: number | undefined }>
+assert.same<c.TypeOf<typeof PartialReference.decoder>, Partial<{ a: string, b: number | undefined }>>(true)
+assert.same<c.TypeOf<typeof PartialReference.decoder>, { a?: string, b?: number | undefined }>(true)
 
+@decodable!!()
+type RequiredReference = Required<{ a: string, b?: number, c: boolean | undefined, d?: boolean | undefined }>
+assert.same<c.TypeOf<typeof RequiredReference.decoder>, Required<{ a: string, b?: number, c: boolean | undefined, d?: boolean | undefined }>>(true)
+assert.same<c.TypeOf<typeof RequiredReference.decoder>, { a: string, b: number, c: boolean | undefined, d: boolean }>(true)
 
-// @decodable!!()
-// type SimpleUnion = string | boolean | { n: number }
-// assert.same<c.TypeOf<typeof SimpleUnion.decoder>, string | boolean | { n: number }>(true)
+@decodable!!()
+type ReadonlyReference = Readonly<{ a: string, b: number }>
+assert.same<c.TypeOf<typeof ReadonlyReference.decoder>, Readonly<{ a: string, b: number }>>(true)
+assert.same<c.TypeOf<typeof ReadonlyReference.decoder>, { readonly a: string, readonly b: number }>(true)
 
-// @decodable!!()
-// type DiscriminatedUnion = { ok: true, value: string } | { ok: false, error: string }
-// assert.same<c.TypeOf<typeof DiscriminatedUnion.decoder>, { ok: true, value: string } | { ok: false, error: string }>(true)
+@decodable!!()
+type NonNullableReference = NonNullable<string | null | undefined>
+assert.same<c.TypeOf<typeof NonNullableReference.decoder>, NonNullable<string | null | undefined>>(true)
+assert.same<c.TypeOf<typeof NonNullableReference.decoder>, string>(true)
 
-// @decodable!!()
-// type StringConstant = 'a'
-// assert.same<c.TypeOf<typeof StringConstant.decoder>, 'a'>(true)
+@decodable!!()
+type DictReference = Dict<number>
+assert.same<c.TypeOf<typeof DictReference.decoder>, Dict<number>>(true)
+assert.same<c.TypeOf<typeof DictReference.decoder>, { [key: string]: number }>(true)
 
-// @decodable!!()
-// type NumericConstant = 1
-// assert.same<c.TypeOf<typeof NumericConstant.decoder>, 1>(true)
+@decodable!!()
+type PickAB = Pick<{ a: number, b: string, c: boolean }, 'a' | 'b'>
+assert.same<c.TypeOf<typeof PickAB.decoder>, Pick<{ a: number, b: string, c: boolean }, 'a' | 'b'>>(true)
+assert.same<c.TypeOf<typeof PickAB.decoder>, { a: number, b: string }>(true)
 
-// @decodable!!()
-// type BigIntConstant = 10000n
-// assert.same<c.TypeOf<typeof BigIntConstant.decoder>, 10000n>(true)
+@decodable!!()
+type PickA = Pick<{ a: number, b: string, c: boolean }, 'a'>
+assert.same<c.TypeOf<typeof PickA.decoder>, Pick<{ a: number, b: string, c: boolean }, 'a'>>(true)
+assert.same<c.TypeOf<typeof PickA.decoder>, { a: number }>(true)
 
-// @decodable!!()
-// type TrueConstant = true
-// assert.same<c.TypeOf<typeof TrueConstant.decoder>, true>(true)
+@decodable!!()
+type OmitAB = Omit<{ a: number, b: string, c: boolean }, 'a' | 'b'>
+assert.same<c.TypeOf<typeof OmitAB.decoder>, Omit<{ a: number, b: string, c: boolean }, 'a' | 'b'>>(true)
+assert.same<c.TypeOf<typeof OmitAB.decoder>, { c: boolean }>(true)
 
-// @decodable!!()
-// type FalseConstant = false
-// assert.same<c.TypeOf<typeof FalseConstant.decoder>, false>(true)
+@decodable!!()
+type OmitA = Omit<{ a: number, b: string, c: boolean }, 'a'>
+assert.same<c.TypeOf<typeof OmitA.decoder>, Omit<{ a: number, b: string, c: boolean }, 'a'>>(true)
+assert.same<c.TypeOf<typeof OmitA.decoder>, { b: string, c: boolean }>(true)
 
-// @decodable!!()
-// type NullConstant = null
-// assert.same<c.TypeOf<typeof NullConstant.decoder>, null>(true)
+@decodable!!()
+type RecordAB = Record<'a' | 'b', string>
+assert.same<c.TypeOf<typeof RecordAB.decoder>, Record<'a' | 'b', string>>(true)
+assert.same<c.TypeOf<typeof RecordAB.decoder>, { a: string, b: string }>(true)
 
-// @decodable!!()
-// type UndefinedConstant = undefined
-// assert.same<c.TypeOf<typeof UndefinedConstant.decoder>, undefined>(true)
+@decodable!!()
+type RecordA = Record<'a', string>
+assert.same<c.TypeOf<typeof RecordA.decoder>, Record<'a', string>>(true)
+assert.same<c.TypeOf<typeof RecordA.decoder>, { a: string }>(true)
 
-// @decodable!!()
-// type VoidConstant = void
-// assert.same<c.TypeOf<typeof VoidConstant.decoder>, void>(true)
+@decodable!!()
+type ReferenceArray = BasicPrimitive[]
+assert.same<c.TypeOf<typeof ReferenceArray.decoder>, BasicPrimitive[]>(true)
+assert.same<c.TypeOf<typeof ReferenceArray.decoder>, string[]>(true)
 
-// @decodable!!()
-// type NeverConstant = never
-// assert.same<c.TypeOf<typeof NeverConstant.decoder>, never>(true)
+@decodable!!()
+type ObjectArray = { a: string }[]
+assert.same<c.TypeOf<typeof ObjectArray.decoder>, { a: string }[]>(true)
 
-// @decodable!!()
-// type UnknownConstant = unknown
-// assert.same<c.TypeOf<typeof UnknownConstant.decoder>, unknown>(true)
-
-// @decodable!!()
-// type ConstantUnion = 'a' | 1 | true | null | undefined
-// assert.same<c.TypeOf<typeof ConstantUnion.decoder>, 'a' | 1 | true | null | undefined>(true)
-
-// @decodable!!()
-// type SimpleTuple = [number, boolean]
-// assert.same<c.TypeOf<typeof SimpleTuple.decoder>, [number, boolean]>(true)
-
-// @decodable!!()
-// type TupleWithOptionals = [number, boolean?]
-// assert.same<c.TypeOf<typeof TupleWithOptionals.decoder>, [number, boolean?]>(true)
-
-// @decodable!!()
-// type TupleWithSpread = [number, ...boolean[]]
-// assert.same<c.TypeOf<typeof TupleWithSpread.decoder>, [number, ...boolean[]]>(true)
-
-
-// @decodable!!()
-// type SaneIntersection = { a: string } & { b: boolean }
-// assert.same<c.TypeOf<typeof SaneIntersection.decoder>, { a: string } & { b: boolean }>(true)
-
-// @decodable!!()
-// type ArrayIntersection = string[] & { b: boolean }
-// assert.same<c.TypeOf<typeof ArrayIntersection.decoder>, string[] & { b: boolean }>(true)
-
-// @decodable!!()
-// export type BadIntersection = string & number
-// assert.same<c.TypeOf<typeof BadIntersection.decoder>, string & number>(true)
-// assert.never<c.TypeOf<typeof BadIntersection.decoder>>(true)
+@decodable!!()
+type UnionArray = (string | boolean)[]
+assert.same<c.TypeOf<typeof UnionArray.decoder>, (string | boolean)[]>(true)
 
 
-// @decodable!!()
-// type G<L, R> = { left: L, right: R }
-// assert.same<typeof G.decoder, <L, R>(left: c.Decoder<L>, right: c.Decoder<R>) => c.Decoder<G<L, R>>>(true)
+@decodable!!()
+type SimpleObject = { b: number }
+assert.same<c.TypeOf<typeof SimpleObject.decoder>, { b: number }>(true)
 
-// @decodable!!()
-// type GStringBoolean = G<string, number>
-// assert.same<c.TypeOf<typeof GStringBoolean.decoder>, { left: string, right: number }>(true)
+@decodable!!()
+type NestedObject = { b: number, c: { s: string } }
+assert.same<c.TypeOf<typeof NestedObject.decoder>, { b: number, c: { s: string } }>(true)
 
-// @decodable!!()
-// type GPrimBoolean = G<PrimitiveArray, boolean>
-// assert.same<c.TypeOf<typeof GPrimBoolean.decoder>, { left: string[], right: boolean }>(true)
+@decodable!!()
+type ObjectWithOptionals = { b: number, c?: boolean }
+assert.same<c.TypeOf<typeof ObjectWithOptionals.decoder>, { b: number, c?: boolean }>(true)
 
 
-// // @decodable!!()
-// // export type BasicFunc = (a: string, b: boolean) => number
-// // assert.same<typeof BasicFunc.decoder, (fn: BasicFunc) => c.Decoder<number>>(true)
+@decodable!!()
+type SimpleUnion = string | boolean | { n: number }
+assert.same<c.TypeOf<typeof SimpleUnion.decoder>, string | boolean | { n: number }>(true)
 
-// // @decodable!!()
-// // type GenericFunc<T, U> = (a: T, b: boolean) => U
-// // assert.same<typeof GenericFunc.decoder, <T, U>(T: c.Decoder<T>, U: c.Decoder<U>) => (fn: GenericFunc<T, U>) => c.Decoder<U>>(true)
+@decodable!!()
+type DiscriminatedUnion = { ok: true, value: string } | { ok: false, error: string }
+assert.same<c.TypeOf<typeof DiscriminatedUnion.decoder>, { ok: true, value: string } | { ok: false, error: string }>(true)
+
+@decodable!!()
+type StringConstant = 'a'
+assert.same<c.TypeOf<typeof StringConstant.decoder>, 'a'>(true)
+
+@decodable!!()
+type NumericConstant = 1
+assert.same<c.TypeOf<typeof NumericConstant.decoder>, 1>(true)
+
+@decodable!!()
+type BigIntConstant = 10000n
+assert.same<c.TypeOf<typeof BigIntConstant.decoder>, 10000n>(true)
+
+@decodable!!()
+type TrueConstant = true
+assert.same<c.TypeOf<typeof TrueConstant.decoder>, true>(true)
+
+@decodable!!()
+type FalseConstant = false
+assert.same<c.TypeOf<typeof FalseConstant.decoder>, false>(true)
+
+@decodable!!()
+type NullConstant = null
+assert.same<c.TypeOf<typeof NullConstant.decoder>, null>(true)
+
+@decodable!!()
+type UndefinedConstant = undefined
+assert.same<c.TypeOf<typeof UndefinedConstant.decoder>, undefined>(true)
+
+@decodable!!()
+type VoidConstant = void
+assert.same<c.TypeOf<typeof VoidConstant.decoder>, void>(true)
+
+@decodable!!()
+type NeverConstant = never
+assert.same<c.TypeOf<typeof NeverConstant.decoder>, never>(true)
+
+@decodable!!()
+type UnknownConstant = unknown
+assert.same<c.TypeOf<typeof UnknownConstant.decoder>, unknown>(true)
+
+@decodable!!()
+type ConstantUnion = 'a' | 1 | true | null | undefined
+assert.same<c.TypeOf<typeof ConstantUnion.decoder>, 'a' | 1 | true | null | undefined>(true)
+
+@decodable!!()
+type SimpleTuple = [number, boolean]
+assert.same<c.TypeOf<typeof SimpleTuple.decoder>, [number, boolean]>(true)
+
+@decodable!!()
+type TupleWithOptionals = [number, boolean?]
+assert.same<c.TypeOf<typeof TupleWithOptionals.decoder>, [number, boolean?]>(true)
+
+@decodable!!()
+type TupleWithSpread = [number, ...boolean[]]
+assert.same<c.TypeOf<typeof TupleWithSpread.decoder>, [number, ...boolean[]]>(true)
+
+
+@decodable!!()
+type SaneIntersection = { a: string } & { b: boolean }
+assert.same<c.TypeOf<typeof SaneIntersection.decoder>, { a: string } & { b: boolean }>(true)
+
+@decodable!!()
+type ArrayIntersection = string[] & { b: boolean }
+assert.same<c.TypeOf<typeof ArrayIntersection.decoder>, string[] & { b: boolean }>(true)
+
+@decodable!!()
+export type BadIntersection = string & number
+assert.same<c.TypeOf<typeof BadIntersection.decoder>, string & number>(true)
+assert.never<c.TypeOf<typeof BadIntersection.decoder>>(true)
+
+
+@decodable!!()
+type G<L, R> = { left: L, right: R }
+assert.same<typeof G.decoder, <L, R>(left: c.Decoder<L>, right: c.Decoder<R>) => c.Decoder<G<L, R>>>(true)
+
+@decodable!!()
+type GStringBoolean = G<string, number>
+assert.same<c.TypeOf<typeof GStringBoolean.decoder>, { left: string, right: number }>(true)
+
+@decodable!!()
+type GPrimBoolean = G<PrimitiveArray, boolean>
+assert.same<c.TypeOf<typeof GPrimBoolean.decoder>, { left: string[], right: boolean }>(true)
 
 
 // @decodable!!()
-// export interface BasicInterface { a: string }
-// assert.same<c.TypeOf<typeof BasicInterface.decoder>, { a: string }>(true)
-// assert.same<c.TypeOf<typeof BasicInterface.decoder>, BasicInterface>(true)
+// export type BasicFunc = (a: string, b: boolean) => number
+// assert.same<typeof BasicFunc.decoder, (fn: BasicFunc) => c.Decoder<number>>(true)
 
 // @decodable!!()
-// interface InterfaceArray extends UnionArray, NestedObject { a: string }
-// assert.same<c.TypeOf<typeof InterfaceArray.decoder>, { a: string } & UnionArray & NestedObject>(true)
-// assert.same<c.TypeOf<typeof InterfaceArray.decoder>, InterfaceArray>(true)
+// type GenericFunc<T, U> = (a: T, b: boolean) => U
+// assert.same<typeof GenericFunc.decoder, <T, U>(T: c.Decoder<T>, U: c.Decoder<U>) => (fn: GenericFunc<T, U>) => c.Decoder<U>>(true)
 
 
+@decodable!!()
+export interface BasicInterface { a: string }
+assert.same<c.TypeOf<typeof BasicInterface.decoder>, { a: string }>(true)
+assert.same<c.TypeOf<typeof BasicInterface.decoder>, BasicInterface>(true)
+
+@decodable!!()
+interface InterfaceArray extends UnionArray, NestedObject { a: string }
+assert.same<c.TypeOf<typeof InterfaceArray.decoder>, { a: string } & UnionArray & NestedObject>(true)
+assert.same<c.TypeOf<typeof InterfaceArray.decoder>, InterfaceArray>(true)
+
+
+@decodable!!()
+class BasicClass {
+  c: boolean
+  constructor(
+    readonly a: string,
+    public b: boolean,
+    c: number,
+  ) { this.c = c === 0 }
+}
+assert.same<c.TypeOf<typeof BasicClass.decoder>, BasicClass>(true)
+
+@decodable!!()
+class GenericClass<L, R> {
+ constructor(
+   readonly left: L,
+   readonly right: R,
+ ) {}
+}
+assert.same<typeof GenericClass.decoder, <L, R>(left: c.Decoder<L>, right: c.Decoder<R>) => c.Decoder<GenericClass<L, R>>>(true)
+
+@decodable!!()
+class GenericClassSpread<L, R extends any[]> {
+  right: R
+ constructor(
+   readonly left: L,
+   ...right: R,
+ ) { this.right = right }
+}
+assert.same<typeof GenericClassSpread.decoder, <L, R extends any[]>(left: c.Decoder<L>, right: c.Decoder<R>) => c.Decoder<GenericClassSpread<L, R>>>(true)
+
+// TODO does the failure here mean this variety just isn't realistic?
 // @decodable!!()
-// class BasicClass {
-//   c: boolean
-//   constructor(
-//     readonly a: string,
-//     public b: boolean,
-//     c: number,
-//   ) { this.c = c === 0 }
-// }
-// assert.same<c.TypeOf<typeof BasicClass.decoder>, BasicClass>(true)
-
-// @decodable!!()
-// class GenericClass<L, R> {
+// class ComplexClass extends BasicClass {
 //  constructor(
-//    readonly left: L,
-//    readonly right: R,
-//  ) {}
+//    a: string,
+//    b: boolean,
+//    c: number,
+//    readonly stuff: { a: number }[],
+//  ) { super(a, b, c) }
 // }
-// assert.same<typeof GenericClass.decoder, <L, R>(left: c.Decoder<L>, right: c.Decoder<R>) => c.Decoder<GenericClass<L, R>>>(true)
+// assert.same<c.TypeOf<typeof ComplexClass.decoder>, [string, boolean, number, { a: number }[]]>(true)
+
 
 // @decodable!!()
-// class GenericClassSpread<L, R extends any[]> {
-//   right: R
-//  constructor(
-//    readonly left: L,
-//    ...right: R,
-//  ) { this.right = right }
+// export class ConstructorLessClass extends BasicClass {
+//  yoyo() { return this.b && this.c }
 // }
-// assert.same<typeof GenericClassSpread.decoder, <L, R extends any[]>(left: c.Decoder<L>, right: c.Decoder<R>) => c.Decoder<GenericClassSpread<L, R>>>(true)
-
-// // TODO does the failure here mean this variety just isn't realistic?
-// // @decodable!!()
-// // class ComplexClass extends BasicClass {
-// //  constructor(
-// //    a: string,
-// //    b: boolean,
-// //    c: number,
-// //    readonly stuff: { a: number }[],
-// //  ) { super(a, b, c) }
-// // }
-// // assert.same<c.TypeOf<typeof ComplexClass.decoder>, [string, boolean, number, { a: number }[]]>(true)
+// assert.same<c.TypeOf<typeof ConstructorLessClass.decoder>, [string, boolean, number]>(true)
 
 
-// // @decodable!!()
-// // export class ConstructorLessClass extends BasicClass {
-// //  yoyo() { return this.b && this.c }
-// // }
-// // assert.same<c.TypeOf<typeof ConstructorLessClass.decoder>, [string, boolean, number]>(true)
+@decodable!!()
+function basicFunction(a: string, b: { c: boolean[] }) { return 'a' as const }
+// assert.same<c.TypeOf<typeof basicFunction.decoder>, [string, { c: boolean[] }]>(true)
+assert.same<c.TypeOf<typeof basicFunction.decoder>, ReturnType<typeof basicFunction>>(true)
+assert.same<c.TypeOf<typeof basicFunction.decoder>, 'a'>(true)
+
+@decodable!!()
+export function functionGeneric<T>(a: T, ...ns: number[]): T { return a }
+// const n: typeof functionGeneric.decoder = undefined
+assert.same<typeof functionGeneric.decoder, <T>(T: c.Decoder<T>) => c.Decoder<T>>(true)
+
+@decodable!!()
+function functionWithOptional(a: string, c?: number) { return 'b' as const }
+// assert.same<c.TypeOf<typeof functionWithOptional.decoder>, [string, number?]>(true)
+assert.same<c.TypeOf<typeof functionWithOptional.decoder>, ReturnType<typeof functionWithOptional>>(true)
+assert.same<c.TypeOf<typeof functionWithOptional.decoder>, 'b'>(true)
+
+@decodable!!()
+function functionWithDefault(a: string, c: number = 1) { return 'c' as const }
+// assert.same<c.TypeOf<typeof functionWithDefault.decoder>, [string, number?]>(true)
+assert.same<c.TypeOf<typeof functionWithDefault.decoder>, ReturnType<typeof functionWithDefault>>(true)
+assert.same<c.TypeOf<typeof functionWithDefault.decoder>, 'c'>(true)
+
+@decodable!!()
+export function functionWithSpread(a: string, ...ns: number[]) { return 'd' as const }
+// assert.same<c.TypeOf<typeof functionWithSpread.decoder>, [string, ...number[]]>(true)
+assert.same<c.TypeOf<typeof functionWithSpread.decoder>, ReturnType<typeof functionWithSpread>>(true)
+assert.same<c.TypeOf<typeof functionWithSpread.decoder>, 'd'>(true)
 
 
-// @decodable!!()
-// function basicFunction(a: string, b: { c: boolean[] }) { return 'a' as const }
-// // assert.same<c.TypeOf<typeof basicFunction.decoder>, [string, { c: boolean[] }]>(true)
-// assert.same<c.TypeOf<typeof basicFunction.decoder>, ReturnType<typeof basicFunction>>(true)
-// assert.same<c.TypeOf<typeof basicFunction.decoder>, 'a'>(true)
+@decodable!!()
+enum NumericEnum { a, b, c }
+assert.same<c.TypeOf<typeof NumericEnum.decoder>, NumericEnum>(true)
 
-// @decodable!!()
-// export function functionGeneric<T>(a: T, ...ns: number[]): T { return a }
-// // const n: typeof functionGeneric.decoder = undefined
-// assert.same<typeof functionGeneric.decoder, <T>(T: c.Decoder<T>) => c.Decoder<T>>(true)
+@decodable!!()
+enum SpecifiedNumericEnum { a = 2, b = 3, c = 4 }
+assert.same<c.TypeOf<typeof SpecifiedNumericEnum.decoder>, SpecifiedNumericEnum>(true)
 
-// @decodable!!()
-// function functionWithOptional(a: string, c?: number) { return 'b' as const }
-// // assert.same<c.TypeOf<typeof functionWithOptional.decoder>, [string, number?]>(true)
-// assert.same<c.TypeOf<typeof functionWithOptional.decoder>, ReturnType<typeof functionWithOptional>>(true)
-// assert.same<c.TypeOf<typeof functionWithOptional.decoder>, 'b'>(true)
+@decodable!!()
+enum InitializedNumericEnum { a = 2, b, c }
+assert.same<c.TypeOf<typeof InitializedNumericEnum.decoder>, InitializedNumericEnum>(true)
 
-// @decodable!!()
-// function functionWithDefault(a: string, c: number = 1) { return 'c' as const }
-// // assert.same<c.TypeOf<typeof functionWithDefault.decoder>, [string, number?]>(true)
-// assert.same<c.TypeOf<typeof functionWithDefault.decoder>, ReturnType<typeof functionWithDefault>>(true)
-// assert.same<c.TypeOf<typeof functionWithDefault.decoder>, 'c'>(true)
+@decodable!!()
+enum Yoyoyoyo { a = 'a', b = 'b', c = 'c' }
+assert.same<c.TypeOf<typeof Yoyoyoyo.decoder>, Yoyoyoyo>(true)
 
-// @decodable!!()
-// export function functionWithSpread(a: string, ...ns: number[]) { return 'd' as const }
-// // assert.same<c.TypeOf<typeof functionWithSpread.decoder>, [string, ...number[]]>(true)
-// assert.same<c.TypeOf<typeof functionWithSpread.decoder>, ReturnType<typeof functionWithSpread>>(true)
-// assert.same<c.TypeOf<typeof functionWithSpread.decoder>, 'd'>(true)
-
-
-// @decodable!!()
-// enum NumericEnum { a, b, c }
-// assert.same<c.TypeOf<typeof NumericEnum.decoder>, NumericEnum>(true)
-
-// @decodable!!()
-// enum SpecifiedNumericEnum { a = 2, b = 3, c = 4 }
-// assert.same<c.TypeOf<typeof SpecifiedNumericEnum.decoder>, SpecifiedNumericEnum>(true)
-
-// @decodable!!()
-// enum InitializedNumericEnum { a = 2, b, c }
-// assert.same<c.TypeOf<typeof InitializedNumericEnum.decoder>, InitializedNumericEnum>(true)
-
-// @decodable!!()
-// enum Yoyoyoyo { a = 'a', b = 'b', c = 'c' }
-// assert.same<c.TypeOf<typeof Yoyoyoyo.decoder>, Yoyoyoyo>(true)
-
-// @decodable!!()
-// export enum HeterogeneousEnum { a = 2, b = 'b', c = 5 }
-// assert.same<c.TypeOf<typeof HeterogeneousEnum.decoder>, HeterogeneousEnum>(true)
+@decodable!!()
+export enum HeterogeneousEnum { a = 2, b = 'b', c = 5 }
+assert.same<c.TypeOf<typeof HeterogeneousEnum.decoder>, HeterogeneousEnum>(true)
 

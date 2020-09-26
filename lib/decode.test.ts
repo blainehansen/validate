@@ -667,12 +667,18 @@ describe('required', () => it('works', () => {
 }))
 
 describe('nonnullable', () => it('works', () => {
-	for (const combinator of [c.nillable, c.undefinable, c.nullable])
+	for (const combinator of [c.optional, c.nillable, c.undefinable, c.nullable])
 		validate(
 			c.nonnullable(combinator(c.string)),
 			['a', ''],
 			[{}, null, undefined, [], ['a'], { a: 'a', b: 0, c: 4 }, { a: 'a', b: true, d: 'a' }, true, 2, -2, 5.5, -5.5, Infinity, NaN],
 		)
+
+	validate(
+		c.nonnullable(c.optional(c.nullable(c.string))),
+		['a', ''],
+		[{}, null, undefined, [], ['a'], { a: 'a', b: 0, c: 4 }, { a: 'a', b: true, d: 'a' }, true, 2, -2, 5.5, -5.5, Infinity, NaN],
+	)
 
 	validate(
 		c.nonnullable(c.literals(1, 'a', undefined, null)),
