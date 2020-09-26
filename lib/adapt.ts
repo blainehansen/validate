@@ -1,5 +1,5 @@
 import { Result, Ok, Err, Maybe, Some, None } from '@blainehansen/monads'
-import { Decoder } from './decode'
+import { Decoder, CombinatorDecoder, callIsExact } from './decode'
 
 export type SafeAdaptor<U, T> = { isFallible: false, decoder: Decoder<U>, func: (input: U) => T }
 export type FallibleAdaptor<U, T> = { isFallible: true, decoder: Decoder<U>, func: (input: U) => Result<T> }
@@ -11,7 +11,7 @@ type AdaptorTuple<L extends any[], T> = {
 	[K in keyof L]: Adaptor<L[K], T>
 }
 
-class AdaptorDecoder<U, T> extends Decoder<T> {
+class AdaptorDecoder<U, T> extends CombinatorDecoder<T> {
 	readonly name: string
 	constructor(
 		readonly decoder: Decoder<T>,
@@ -21,13 +21,14 @@ class AdaptorDecoder<U, T> extends Decoder<T> {
 		this.name = `adaptable ${decoder.name}`
 	}
 
-	decode(input: unknown): Result<T> {
-		const baseAttempt = this.decoder.decode(input)
+	_decode(input: unknown, isExact: boolean): Result<T> {
+		const { name, decoder, adaptors } = this
+		const baseAttempt = callIsExact(decoder, isExact, input)
 		if (baseAttempt.isOk())
 			return baseAttempt
 
-		for (const adaptor of this.adaptors) {
-			const adaptorResult = adaptor.decoder.decode(input)
+		for (const adaptor of adaptors) {
+			const adaptorResult = callIsExact(adaptor.decoder, isExact, input)
 			const adaptorAttempt = adaptor.isFallible
 				? adaptorResult.tryChange(adaptor.func)
 				: adaptorResult.change(adaptor.func)
@@ -36,8 +37,8 @@ class AdaptorDecoder<U, T> extends Decoder<T> {
 				return adaptorAttempt
 		}
 
-		const names = this.adaptors.map(a => a.decoder.name).join(', ')
-		return Err(`in ${this.name}, couldn't decode from any of [${names}]; got ${input}`)
+		const names = adaptors.map(a => a.decoder.name).join(', ')
+		return Err(`in ${name}, couldn't decode from any of [${names}]; got ${input}`)
 	}
 }
 

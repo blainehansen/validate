@@ -5,10 +5,12 @@ import { Dict, Cast, TupleIntersection, FilteredTupleIntersection, TupleLike, is
 export abstract class Decoder<T> {
 	abstract readonly name: string
 	abstract decode(input: unknown): Result<T>
-}
-export abstract class ExactDecoder<T> extends Decoder<T> {
 	abstract decodeExact(input: unknown): Result<T>
 }
+export function callIsExact<T>(decoder: Decoder<T>, isExact: boolean, input: unknown): Result<T> {
+	return isExact ? decoder.decodeExact(input) : decoder.decode(input)
+}
+
 export type DecoderTuple<L extends any[]> = {
 	[K in keyof L]: Decoder<L[K]>
 }
@@ -18,14 +20,27 @@ function decoderErr<T>(name: string, input: unknown) {
 	return Err(`expected ${name}, got ${input}`)
 }
 
+export abstract class SameDecoder<T> extends Decoder<T> {
+	abstract readonly name: string
+	protected abstract _decode(input: unknown): Result<T>
+	decode(input: unknown): Result<T> { return this._decode(input) }
+	decodeExact(input: unknown): Result<T> { return this._decode(input) }
+}
 
-class WrapDecoder<T> extends Decoder<T> {
+export abstract class CombinatorDecoder<T> extends Decoder<T> {
+	abstract readonly name: string
+	protected abstract _decode(input: unknown, isExact: boolean): Result<T>
+	decode(input: unknown): Result<T> { return this._decode(input, false) }
+	decodeExact(input: unknown): Result<T> { return this._decode(input, true) }
+}
+
+class WrapDecoder<T> extends SameDecoder<T> {
 	constructor(
 		readonly name: string,
 		readonly decoderFunc: (input: unknown) => Result<T>,
 	) { super() }
 
-	decode(input: unknown) {
+	_decode(input: unknown) {
 		return this.decoderFunc(input)
 	}
 }
@@ -33,13 +48,13 @@ export function wrap<T>(name: string, decoderFunc: (input: unknown) => Result<T>
 	return new WrapDecoder(name, decoderFunc)
 }
 
-class EnumDecoder<T> extends Decoder<T> {
+class EnumDecoder<T> extends SameDecoder<T> {
 	constructor(
 		readonly name: string,
 		readonly decoderFunc: (input: unknown) => T | undefined,
 	) { super() }
 
-	decode(input: unknown): Result<T> {
+	_decode(input: unknown): Result<T> {
 		const { name, decoderFunc } = this
 		const result = decoderFunc(input)
 		return result === undefined ? decoderErr(name, input) : Ok(result)
@@ -51,16 +66,16 @@ export function wrapEnum<T>(name: string, decoderFunc: (input: unknown) => T | u
 
 
 type Func<L extends any[], T> = (...args: L) => T
-class FunctionDecoder<L extends any[], T> extends Decoder<T> {
+class FunctionDecoder<L extends any[], T> extends CombinatorDecoder<T> {
 	readonly name: string
 	constructor(readonly fn: Func<L, T>, readonly argsDecoder: Decoder<L>) {
 		super()
 		this.name = fn.name
 	}
 
-	decode(input: unknown): Result<T> {
+	_decode(input: unknown, isExact: boolean): Result<T> {
 		const { name, fn, argsDecoder } = this
-		const argsResult = argsDecoder.decode(input)
+		const argsResult = callIsExact(argsDecoder, isExact, input)
 		return argsResult.isErr()
 			? Err(`expected args to call ${name}, got ${input}`)
 			: Ok(fn(...argsResult.value))
@@ -70,22 +85,43 @@ export function func<L extends any[], T>(fn: Func<L, T>, argsDecoder: Decoder<L>
 	return new FunctionDecoder(fn, argsDecoder)
 }
 
+// type Func<L extends any[], T> = (...args: L) => T
+// class FunctionDecoder<L extends any[], T> {
+// 	readonly name: string
+// 	constructor(readonly fn: Func<L, T>, readonly argsDecoder: Decoder<L>) {
+// 		super()
+// 		this.name = fn.name
+// 	}
+
+// 	callDecode(input: unknown): Result<T> {
+// 		const { name, fn, argsDecoder } = this
+// 		const argsResult = argsDecoder.decode(input)
+// 		return argsResult.isErr()
+// 			? Err(`expected args to call ${name}, got ${input}`)
+// 			: Ok(fn(...argsResult.value))
+// 	}
+// }
+// export function func<L extends any[], T>(fn: Func<L, T>, argsDecoder: Decoder<L>) {
+// 	return new FunctionDecoder(fn, argsDecoder)
+// }
+
+
 
 export interface Constructable<L extends any[], T> {
 	new (...args: L): T
 }
-class ClassDecoder<L extends any[], T> extends Decoder<T> {
+class ClassDecoder<L extends any[], T> extends CombinatorDecoder<T> {
 	readonly name: string
 	constructor(readonly clz: Constructable<L, T>, readonly constructorArgsDecoder: Decoder<L>) {
 		super()
 		this.name = clz.name
 	}
 
-	decode(input: unknown): Result<T> {
+	_decode(input: unknown, isExact: boolean): Result<T> {
 		const { name, clz, constructorArgsDecoder } = this
 		if (input instanceof clz) return Ok(input)
 
-		const argsResult = constructorArgsDecoder.decode(input)
+		const argsResult = callIsExact(constructorArgsDecoder, isExact, input)
 		return argsResult.isErr()
 			? Err(`expected instance of or args to construct ${name}, got ${input}`)
 			: Ok(new clz(...argsResult.value))
@@ -170,16 +206,16 @@ export const uint = new WrapDecoder(
 )
 
 
-class RecursiveDecoder<T> extends Decoder<T> {
+class RecursiveDecoder<T> extends CombinatorDecoder<T> {
 	readonly name!: string
 	constructor(readonly fn: () => Decoder<T>) { super() }
 
-	decode(input: unknown) {
+	_decode(input: unknown, isExact: boolean) {
 		const decoder = this.fn()
 		if ((this.name as any) === undefined)
 			(this.name as any) = decoder.name
 
-		return decoder.decode(input)
+		return callIsExact(decoder, isExact, input)
 	}
 }
 export function recursive<T>(fn: () => Decoder<T>): Decoder<T> {
@@ -187,13 +223,13 @@ export function recursive<T>(fn: () => Decoder<T>): Decoder<T> {
 }
 
 
-class MaybeDecoder<T> extends Decoder<Maybe<T>> {
+class MaybeDecoder<T> extends CombinatorDecoder<Maybe<T>> {
 	readonly name: string
 	constructor(readonly decoder: Decoder<T>) {
 		super()
 		this.name = `Maybe<${decoder.name}>`
 	}
-	decode(input: unknown): Result<Maybe<T>> {
+	_decode(input: unknown, isExact: boolean): Result<Maybe<T>> {
 		if (input === null || input === undefined)
 			return Ok(None)
 		// if (Maybe.isMaybe(input))
@@ -203,10 +239,10 @@ class MaybeDecoder<T> extends Decoder<Maybe<T>> {
 		// 			.change(value => Some(value)),
 		// 		none: () => Ok(None),
 		// 	})
-		return this.decoder
-			.decode(input)
+		const { name, decoder } = this
+		return callIsExact(decoder, isExact, input)
 			.change(value => Some(value))
-			.changeErr(err => `expected ${this.name}, encountered this error: ${err}`)
+			.changeErr(err => `expected ${name}, encountered this error: ${err}`)
 	}
 }
 export function maybe<T>(decoder: Decoder<T>): Decoder<Maybe<T>> {
@@ -214,7 +250,7 @@ export function maybe<T>(decoder: Decoder<T>): Decoder<Maybe<T>> {
 }
 
 
-class UnionDecoder<L extends any[]> extends Decoder<L[number]> {
+class UnionDecoder<L extends any[]> extends CombinatorDecoder<L[number]> {
 	readonly name: string
 	readonly decoders: DecoderTuple<L>
 	constructor(decoders: DecoderTuple<L>) {
@@ -230,9 +266,9 @@ class UnionDecoder<L extends any[]> extends Decoder<L[number]> {
 		this.decoders = flattened
 	}
 
-	decode(input: unknown) {
+	_decode(input: unknown, isExact: boolean) {
 		for (const decoder of this.decoders) {
-			const result = decoder.decode(input)
+			const result = callIsExact(decoder, isExact, input)
 			if (result.isOk()) return result
 		}
 
@@ -245,14 +281,14 @@ export function union<L extends any[]>(...decoders: DecoderTuple<L>): Decoder<L[
 
 
 type Primitives = string | boolean | number | bigint | null | undefined | void
-class ValuesDecoder<V extends Primitives, L extends V[]> extends Decoder<L[number]> {
+class ValuesDecoder<V extends Primitives, L extends V[]> extends SameDecoder<L[number]> {
 	readonly name: string
 	constructor(readonly values: L) {
 		super()
 		this.name = values.map(v => `${v}`).join(' | ')
 	}
 
-	decode(input: unknown): Result<L[number]> {
+	_decode(input: unknown): Result<L[number]> {
 		for (const value of this.values)
 			if (value === input) return Ok(value)
 
@@ -283,20 +319,20 @@ export const trueLiteral = literal(true as true)
 export const falseLiteral = literal(false as false)
 
 
-class OptionalDecoder<T> extends Decoder<T | undefined> {
+class OptionalDecoder<T> extends CombinatorDecoder<T | undefined> {
 	readonly name: string
 	readonly decoder: Decoder<T>
 	constructor(decoder: Decoder<T>) {
 		super()
 		this.name = `(${decoder.name})?`
 		this.decoder = decoder instanceof UnionDecoder
-			? new UnionDecoder((decoder as UnionDecoder<unknown[]>).decoders.filter(decoder => decoder !== undefinedLiteral))
+			? new UnionDecoder((decoder as UnionDecoder<unknown[]>).decoders.filter(decoder => decoder !== undefinedLiteral)) as Decoder<T>
 			: decoder
 	}
 
-	decode(input: unknown): Result<T | undefined> {
+	_decode(input: unknown, isExact: boolean): Result<T | undefined> {
 		if (input === undefined) return Ok(undefined)
-		return this.decoder.decode(input)
+		return callIsExact(this.decoder, isExact, input)
 	}
 }
 export function optional<T>(decoder: Decoder<T>): Decoder<T | undefined> {
@@ -304,21 +340,21 @@ export function optional<T>(decoder: Decoder<T>): Decoder<T | undefined> {
 }
 
 
-class ArrayDecoder<T> extends Decoder<T[]> {
+class ArrayDecoder<T> extends CombinatorDecoder<T[]> {
 	readonly name: string
 	constructor(readonly decoder: Decoder<T>) {
 		super()
 		this.name = `${decoder.name}[]`
 	}
 
-	decode(input: unknown): Result<T[]> {
+	_decode(input: unknown, isExact: boolean): Result<T[]> {
 		const { name, decoder } = this
 
 		if (!Array.isArray(input)) return decoderErr(name, input)
 
 		for (let index = 0; index < input.length; index++) {
 			const item = input[index]
-			const result = decoder.decode(item)
+			const result = callIsExact(decoder, isExact, item)
 			if (result.isErr())
 				return Err(`while decoding ${name}: at index ${index}, failed to decode ${decoder.name}: ${result.error}`)
 		}
@@ -331,21 +367,21 @@ export function array<T>(decoder: Decoder<T>): Decoder<T[]> {
 }
 
 
-class DictionaryDecoder<T> extends Decoder<Dict<T>> {
+class DictionaryDecoder<T> extends CombinatorDecoder<Dict<T>> {
 	readonly name: string
 	constructor(readonly decoder: Decoder<T>) {
 		super()
 		this.name = `Dict<${decoder.name}>`
 	}
 
-	decode(input: unknown): Result<Dict<T>> {
+	_decode(input: unknown, isExact: boolean): Result<Dict<T>> {
 		const { name, decoder } = this
 
 		if (!isObject(input) || Array.isArray(input)) return decoderErr(name, input)
 
 		for (const key in input) {
 			const value = (input as any)[key]
-			const result = decoder.decode(value)
+			const result = callIsExact(decoder, isExact, value)
 			if (result.isErr())
 				return Err(`while decoding ${name}, at key ${key}, failed to decode ${decoder.name}: ${result.error}`)
 		}
@@ -358,20 +394,20 @@ export function dictionary<T>(decoder: Decoder<T>): Decoder<Dict<T>> {
 }
 
 
-class RecordDecoder<K extends string | number | symbol, T> extends Decoder<Record<K, T>> {
+class RecordDecoder<K extends string | number | symbol, T> extends CombinatorDecoder<Record<K, T>> {
 	readonly name: string
 	constructor(readonly keys: K[], readonly decoder: Decoder<T>) {
 		super()
 		this.name = `Record<${keys.map(key => typeof key === 'string' ? `"${key}"` : key).join(' | ')}, ${decoder.name}>`
 	}
 
-	decode(input: unknown): Result<Record<K, T>> {
+	_decode(input: unknown, isExact: boolean): Result<Record<K, T>> {
 		const { name, keys, decoder } = this
 		if (!isObject(input)) return decoderErr(name, input)
 
 		for (const key of keys) {
 			const value = (input as any)[key]
-			const result = decoder.decode(value)
+			const result = callIsExact(decoder, isExact, value)
 			if (result.isErr()) return Err(`in ${name}, invalid key ${key}, got ${value}, error: ${result.error}`)
 		}
 
@@ -383,7 +419,7 @@ export function record<K extends string | number | symbol, T>(keys: K[], decoder
 }
 
 
-class TupleDecoder<L extends any[], S extends any[] = []> extends Decoder<[...L, ...S]> {
+class TupleDecoder<L extends any[], S extends any[] = []> extends CombinatorDecoder<[...L, ...S]> {
 	readonly name: string
 	readonly minLength: number
 	constructor(readonly decoders: DecoderTuple<L>, readonly spread: Decoder<S> | undefined) {
@@ -399,7 +435,7 @@ class TupleDecoder<L extends any[], S extends any[] = []> extends Decoder<[...L,
 		this.minLength = index + 1
 	}
 
-	decode(input: unknown): Result<[...L, ...S]> {
+	_decode(input: unknown, isExact: boolean): Result<[...L, ...S]> {
 		const { name, decoders, spread, minLength } = this
 
 		if (
@@ -411,14 +447,14 @@ class TupleDecoder<L extends any[], S extends any[] = []> extends Decoder<[...L,
 		for (let index = 0; index < decoders.length; index++) {
 			const decoder = decoders[index]
 			const value = input[index]
-			const result = decoder.decode(value)
+			const result = callIsExact(decoder, isExact, value)
 			if (result.isErr())
 				return Err(`while decoding ${name}, at index ${index}, failed to decode ${decoder.name}: ${result.error}`)
 		}
 
 		if (spread) {
 			const rest = input.slice(decoders.length)
-			const result = spread.decode(rest)
+			const result = callIsExact(spread, isExact, rest)
 			if (result.isErr())
 				return Err(`while decoding ${name}, in the spread, failed to decode ${spread.name}: ${result.error}`)
 		}
@@ -439,7 +475,7 @@ export function spread<L extends any[], S extends any[]>(
 
 
 type DecoderObject<O extends Dict<any>> = { [K in keyof O]: Decoder<O[K]> }
-class ObjectDecoder<O extends Dict<any>> extends ExactDecoder<O> {
+class ObjectDecoder<O extends Dict<any>> extends CombinatorDecoder<O> {
 	readonly name: string
 	readonly decoders: DecoderObject<O>
 	constructor(args: [string, DecoderObject<O>] | [DecoderObject<O>]) {
@@ -461,34 +497,27 @@ class ObjectDecoder<O extends Dict<any>> extends ExactDecoder<O> {
 		}
 	}
 
-	decode(input: unknown): Result<O> {
+	_decode(input: unknown, isExact: boolean): Result<O> {
 		const { name, decoders } = this
 		if (!isObject(input)) return Err(`Failed to decode a valid ${name}, input is not an object: ${input}`)
 
 		for (const key in decoders) {
 			const decoder = decoders[key]
 			const value = (input as any)[key]
-			const result = decoder.decode(value)
+			const result = callIsExact(decoder, isExact, value)
 			if (result.isErr()) return Err(`Failed to decode a valid ${name}, key ${key} has invalid value: ${value}`)
 		}
+		if (!isExact)
+			return Ok(input as O)
 
-		return Ok(input as O)
-	}
-
-	decodeExact(input: unknown): Result<O> {
-		const looseResult = this.decode(input)
-		if (looseResult.isErr()) return looseResult
-
-		const obj = looseResult.value
-		const { name, decoders } = this
-		for (const key in obj)
+		for (const key in input)
 			if (!(key in decoders)) return Err(`Failed to decode a valid ${name}, input had invalid extra key ${key}`)
-		return looseResult
+		return Ok(input as O)
 	}
 }
 export function object<O extends Dict<any>>(
 	...args: [string, DecoderObject<O>] | [DecoderObject<O>]
-): ExactDecoder<O> {
+): Decoder<O> {
 	return new ObjectDecoder(args)
 }
 
@@ -497,17 +526,17 @@ type UnknownObjectDecoder = ObjectDecoder<Dict<unknown>>
 type UnknownArrayDecoder = ArrayDecoder<unknown>
 type UnknownUnionDecoder = UnionDecoder<unknown[]>
 
-class IntersectionDecoder<L extends any[]> extends Decoder<TupleIntersection<L>> {
+class IntersectionDecoder<L extends any[]> extends CombinatorDecoder<TupleIntersection<L>> {
 	readonly name: string
 	constructor(readonly decoders: DecoderTuple<L>) {
 		super()
 		this.name = decoders.map(decoder => decoder.name).join(' & ')
 	}
 
-	decode(input: unknown): Result<TupleIntersection<L>> {
+	_decode(input: unknown, isExact: boolean): Result<TupleIntersection<L>> {
 		const { name, decoders } = this
 		for (const decoder of this.decoders) {
-			const result = decoder.decode(input)
+			const result = callIsExact(decoder, isExact, input)
 			if (result.isErr()) return Err(`expected ${name}, got ${input}: ${result.error}`)
 		}
 		return Ok(input as TupleIntersection<L>)
@@ -539,7 +568,7 @@ export function intersection<L extends any[]>(...decoders: DecoderTuple<L>): Dec
 				...rest, ...objectDecoders, ...arrayDecoders, ...otherDecoders,
 			))
 		}
-		return new UnionDecoder(finalUnionDecoders)
+		return new UnionDecoder(finalUnionDecoders) as Decoder<TupleIntersection<L>>
 	}
 
 	const finalDecoders = otherDecoders as unknown as DecoderTuple<L>
@@ -621,7 +650,7 @@ export function required<T>(decoder: Decoder<T>): Decoder<Required<T>> {
 	}
 
 	if (decoder instanceof ArrayDecoder)
-		return new ArrayDecoder(requiredUnwrapOptional(decoder.decoder)) as unknown as Decoder<Required<T>>
+		return new ArrayDecoder(requiredUnwrapUndefinable(decoder.decoder)) as unknown as Decoder<Required<T>>
 
 	if (decoder instanceof TupleDecoder) {
 		const finalIndexDecoders = (decoder.decoders as unknown as Decoder<any>[]).map(requiredUnwrapOptional)
@@ -631,11 +660,11 @@ export function required<T>(decoder: Decoder<T>): Decoder<Required<T>> {
 		) as unknown as Decoder<Required<T>>
 	}
 
-	if (decoder instanceof DictionaryDecoder)
-		return new DictionaryDecoder(requiredUnwrapOptional(decoder.decoder)) as unknown as Decoder<Required<T>>
+	// if (decoder instanceof DictionaryDecoder)
+	// 	return new DictionaryDecoder(required(decoder.decoder)) as unknown as Decoder<Required<T>>
 
 	if (decoder instanceof UnionDecoder)
-		return new UnionDecoder((decoder.decoders as unknown as Decoder<any>[]).map(required))
+		return new UnionDecoder((decoder.decoders as unknown as Decoder<any>[]).map(required)) as unknown as Decoder<Required<T>>
 
 	if (decoder instanceof IntersectionDecoder)
 		return new IntersectionDecoder((decoder.decoders as unknown as Decoder<any>[]).map(required)) as unknown as Decoder<Required<T>>
@@ -643,28 +672,47 @@ export function required<T>(decoder: Decoder<T>): Decoder<Required<T>> {
 	// if (decoder instanceof ClassDecoder)
 	return decoder as Decoder<Required<T>>
 }
-function requiredUnwrapOptional<T>(decoder: Decoder<T>): Decoder<T | undefined> {
+function requiredUnwrapOptional<T>(decoder: Decoder<T | undefined>): Decoder<T> {
 	return decoder instanceof OptionalDecoder ? decoder.decoder : decoder
+}
+function requiredUnwrapUndefinable<T>(initial: Decoder<T | undefined>): Decoder<T> {
+	const decoder = requiredUnwrapOptional(initial)
+	if (decoder instanceof UnionDecoder) {
+		const finalDecoders = (decoder as UnionDecoder<unknown[]>).decoders
+			.filter(decoder => decoder !== undefinedLiteral)
+
+		return finalDecoders.length === 1
+			? finalDecoders[0] as Decoder<T>
+			: new UnionDecoder(finalDecoders) as Decoder<T>
+	}
+	if (decoder instanceof ValuesDecoder)
+		return new ValuesDecoder(decoder.values.filter((value: Primitives) => value !== undefined))
+
+	return decoder
 }
 
 
-export function nonnullable<T>(decoder: Decoder<T | null | undefined>): Decoder<T> {
+export function nonnullable<T>(decoder: Decoder<T>): Decoder<NonNullable<T>> {
 	if (decoder instanceof OptionalDecoder)
 		return nonnullable(decoder.decoder)
 	if (decoder instanceof ValuesDecoder)
-		return new ValuesDecoder(decoder.values.filter((value: Primitives) => value !== null && value !== undefined)) as Decoder<T>
+		return new ValuesDecoder(decoder.values.filter((value: Primitives) => value !== null && value !== undefined)) as Decoder<NonNullable<T>>
 
 	if (decoder instanceof UnionDecoder) {
 		const finalDecoders = (decoder as UnionDecoder<unknown[]>).decoders
 			.filter(decoder => decoder !== undefinedLiteral && decoder !== nullLiteral)
 
 		return finalDecoders.length === 1
-			? finalDecoders[0] as unknown as Decoder<T>
-			: new UnionDecoder(finalDecoders)
+			? finalDecoders[0] as unknown as Decoder<NonNullable<T>>
+			: new UnionDecoder(finalDecoders) as Decoder<NonNullable<T>>
 	}
 
-	return decoder as Decoder<T>
+	return decoder as Decoder<NonNullable<T>>
 }
+
+// function unwrapDecoders(decoder: UnionDecoder) {
+// 	//
+// }
 
 export function readonly<T>(decoder: Decoder<T>): Decoder<Readonly<T>> {
 	return decoder

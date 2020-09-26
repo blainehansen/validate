@@ -35,10 +35,10 @@ export const decodable = DecoratorMacro((ctx, statement) => {
 		return decodableForClass(ctx, statement, isExported)
 	if (ts.isInterfaceDeclaration(statement))
 		return decodableForInterface(ctx, statement, isExported)
-	if (ts.isFunctionDeclaration(statement))
-		return decodableForFunction(ctx, statement, isExported)
 	if (ts.isEnumDeclaration(statement))
 		return decoderForEnum(ctx, statement, isExported)
+	if (ts.isFunctionDeclaration(statement))
+		return decodableForFunction(ctx, statement, isExported)
 
 	return ctx.TsNodeErr(statement, "Unsupported statement", `The "decodable" macro can only be used on type aliases, classes, and interfaces.`)
 })
@@ -406,7 +406,10 @@ function decoderForType(
 							if (inner.isErr()) return inner
 							const keys = keysTypeToExpression(keysType)
 							if (keys.isErr()) return keys
-							return Ok(createCombinatorCall(typeName.toLowerCase(), node.typeArguments, [inner.value, keys.value]))
+							return Ok(createCombinatorCall(
+								typeName.toLowerCase(), node.typeArguments,
+								[inner.value, ts.isArrayLiteralExpression(keys.value) ? keys.value : ts.createArrayLiteral([keys.value])],
+							))
 						}
 						break
 
@@ -417,12 +420,12 @@ function decoderForType(
 							if (inner.isErr()) return inner
 							const keys = keysTypeToExpression(keysType)
 							if (keys.isErr()) return keys
-							return Ok(createCombinatorCall(typeName.toLowerCase(), node.typeArguments, [keys.value, inner.value]))
+							return Ok(createCombinatorCall(
+								typeName.toLowerCase(), node.typeArguments,
+								[ts.isArrayLiteralExpression(keys.value) ? keys.value : ts.createArrayLiteral([keys.value]), inner.value],
+							))
 						}
 						break
-
-					// case 'Exclude'<Type, ExcludedUnion>:
-					// case 'Extract'<Type, Union>:
 
 					// case 'Parameters':
 					// 	if (node.typeArguments && node.typeArguments.length === 1 && node.typeArguments[0].isTypeReferenceNode()) {

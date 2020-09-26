@@ -2,12 +2,13 @@ import 'mocha'
 import { expect } from 'chai'
 
 import * as c from './decode'
+import { Dict } from './utils'
 import { assertType as assert } from './utils.test'
 import { Result, Ok, Err, Maybe, Some, None } from '@blainehansen/monads'
 
 function t<T extends any[]>(...values: T): T { return values }
 
-function validateExact<T>(decoder: c.ExactDecoder<T>, okValues: T[], errValues: any[]) {
+function validateExact<T>(decoder: c.Decoder<T>, okValues: T[], errValues: any[]) {
 	for (const value of okValues)
 		expect(decoder.decodeExact(value)).eql(Ok(value))
 
@@ -19,8 +20,9 @@ function validate<T>(decoder: c.Decoder<T>, okValues: T[], errValues: any[]) {
 	for (const value of okValues)
 		expect(decoder.decode(value)).eql(Ok(value))
 
-	for (const value of errValues)
+	for (const value of errValues) {
 		expect(decoder.decode(value).isErr()).true
+	}
 }
 
 function extra<T extends any[], O>(arr: T, obj: O): T & O {
@@ -565,3 +567,125 @@ describe('object', () => it('works', () => {
 	// const separated = c.object('separated', { a: c.number }).decode
 	// expect(separated({ a: 1 })).eql(Ok({ a: 1 }))
 }))
+
+describe('partial', () => it('works', () => {
+	validateExact<Partial<{ a: string, b: number | undefined }>>(
+		c.partial(c.object({
+			a: c.string,
+			b: c.undefinable(c.number),
+		})),
+		[{ a: 'a', b: 1 }, { a: 'a', b: undefined }, { a: undefined, b: 1 }, { b: 1 }, {}],
+		[null, undefined, ['a'], { a: 1 }, { a: 1, b: true }, true, 'a', 2, 5.5, -5.5, Infinity, NaN],
+	)
+
+	validateExact<Partial<string[]>>(
+		c.partial(c.array(c.string)),
+		[[], ['a'], [undefined], ['a', undefined, 'b']],
+		[{ a: 'a', b: undefined }, null, undefined, { a: 1 }, { a: 1, b: true }, true, 'a', 2, 5.5, -5.5, Infinity, NaN],
+	)
+
+	validateExact<Partial<[string | undefined, number]>>(
+		c.partial(c.tuple(c.undefinable(c.string), c.number)),
+		[[], ['a'], [undefined], ['a', 1], [undefined, 1]],
+		[{ a: 'a', b: undefined }, null, undefined, [4], { a: 1 }, { a: 1, b: true }, true, 'a', 2, 5.5, -5.5, Infinity, NaN],
+	)
+
+	validateExact<Partial<[string | undefined, number, ...boolean[]]>>(
+		c.partial(c.spread(c.undefinable(c.string), c.number, c.array(c.boolean))),
+		[[], ['a'], [undefined], ['a', 1], [undefined, 1], [undefined, 1, true], [undefined, 1, false, true], ['a', 1, undefined, true]],
+		[{ a: 'a', b: undefined }, null, undefined, [4], ['a', 1, 1], { a: 1 }, { a: 1, b: true }, true, 'a', 2, 5.5, -5.5, Infinity, NaN],
+	)
+
+	validateExact<Partial<Dict<number | null>>>(
+		c.partial(c.dictionary(c.nullable(c.number))),
+		[{ a: 1 }, {}, { a: undefined }, { a: undefined, b: 1 }, { a: null, b: 1, c: undefined }],
+		[{ a: 'a' }, null, undefined, [4], [undefined, 1], ['a', 1, 1], { a: 1, b: true }, true, 'a', 2, 5.5, -5.5, Infinity, NaN],
+	)
+
+	validateExact<Partial<string | { a: number }>>(
+		c.partial(c.union(c.string, c.object({ a: c.number }))),
+		[{ a: 1 }, {}, { a: undefined }, 'a'],
+		[{ a: 'a' }, { a: null }, null, undefined, [4], [undefined, 1], ['a', 1, 1], { a: 1, b: true }, true, 2, 5.5, -5.5, Infinity, NaN],
+	)
+
+	validateExact<Partial<{ a: number } & { b: string }>>(
+		c.partial(c.intersection(c.object({ a: c.number }), c.object({ b: c.string }))),
+		[{ a: 1 }, {}, { a: undefined }, { b: 'a' }, { b: undefined }, { a: 1, b: 'a' }, { a: 1, b: undefined }],
+		[{ a: 'a' }, { a: null }, null, undefined, [4], [undefined, 1], ['a', 1, 1], { a: 1, b: true }, true, 2, 5.5, -5.5, Infinity, NaN],
+	)
+}))
+
+describe('required', () => it('works', () => {
+	validateExact<Required<{ a?: string, b: number | undefined }>>(
+		c.required(c.object<{ a?: string, b: number | undefined }>({
+			a: c.optional(c.string),
+			b: c.undefinable(c.number),
+		})),
+		[{ a: 'a', b: 1 }, { a: 'a', b: undefined }],
+		[{ a: undefined, b: 1 }, { b: 1 }, {}, null, undefined, ['a'], { a: 1 }, { a: 1, b: true }, true, 'a', 5.5, -5.5, Infinity, NaN],
+	)
+
+	validateExact<Required<(string | undefined | null)[]>>(
+		c.required(c.array(c.nillable(c.string))),
+		[[], ['a'], [null], ['a', null, 'b']],
+		[['a', undefined], { a: 'a', b: null }, null, undefined, { a: 1 }, { a: 1, b: true }, true, 'a', 2, 5.5, -5.5, Infinity, NaN],
+	)
+
+	validateExact<Required<[string, (number | null)?]>>(
+		c.required(c.tuple<[string, (number | null)?]>(c.string, c.optional(c.nullable(c.number)))),
+		[['a', 1], ['a', null]],
+		[[], ['a'], [undefined], { a: 'a', b: undefined }, null, undefined, [4], { a: 1 }, { a: 1, b: true }, true, 'a', 2, 5.5, -5.5, Infinity, NaN],
+	)
+
+	validateExact<Required<[string | undefined, number?, ...boolean[]]>>(
+		c.required(c.spread<[string | undefined, number?], boolean[]>(c.undefinable(c.string), c.optional(c.number), c.array(c.boolean))),
+		[['a', 1], [undefined, 1], [undefined, 1, true], [undefined, 1, false, true], ['a', 1, false, true]],
+		[[], ['a'], [undefined], ['a', undefined], null, undefined, [4], ['a', 1, 1], { a: 1 }, { a: 1, b: true }, true, 'a', 2, 5.5, -5.5, Infinity, NaN],
+	)
+
+	// blagghghg
+	validateExact<Required<Dict<{ a?: number }>>>(
+		c.required(c.dictionary(c.object({ a: c.optional(c.number) }))),
+		[{ o: {} }, { o: { a: undefined } }, { o: { a: 1 } }, {}],
+		[{ a: 'a' }, { a: { a: 'a' } }, { a: undefined }, null, undefined, [4], [undefined, 1], ['a', 1, 1], { a: 1, b: true }, true, 'a', 2, 5.5, -5.5, Infinity, NaN],
+	)
+
+	validateExact<Required<string | { a?: number }>>(
+		c.required(c.union(c.string, c.object<{ a?: number }>({ a: c.optional(c.number) }))),
+		[{ a: 1 }, 'a'],
+		[{ a: 'a' }, {}, { a: undefined }, { a: null }, null, undefined, [4], [undefined, 1], ['a', 1, 1], { a: 1, b: true }, true, 2, 5.5, -5.5, Infinity, NaN],
+	)
+
+	validateExact<Required<{ a?: number } & { b?: string | null }>>(
+		c.required(c.intersection(
+			c.object<{ a?: number }>({ a: c.optional(c.number) }),
+			c.object<{ b?: string | null }>({ b: c.optional(c.nullable(c.string)) }),
+		)),
+		[{ a: 1, b: 'a' }, { a: 1, b: null }],
+		[{ a: 1 }, {}, { a: undefined }, { b: 'a' }, { b: undefined }, { a: 'a' }, { a: null }, null, undefined, [4], [undefined, 1], ['a', 1, 1], { a: 1, b: true }, true, 2, 5.5, -5.5, Infinity, NaN],
+	)
+}))
+
+describe('nonnullable', () => it('works', () => {
+	for (const combinator of [c.nillable, c.undefinable, c.nullable])
+		validate(
+			c.nonnullable(combinator(c.string)),
+			['a', ''],
+			[{}, null, undefined, [], ['a'], { a: 'a', b: 0, c: 4 }, { a: 'a', b: true, d: 'a' }, true, 2, -2, 5.5, -5.5, Infinity, NaN],
+		)
+
+	validate(
+		c.nonnullable(c.literals(1, 'a', undefined, null)),
+		['a', 1],
+		[{}, null, undefined, [], ['a'], { a: 'a', b: 0, c: 4 }, { a: 'a', b: true, d: 'a' }, true, 2, -2, 5.5, -5.5, Infinity, NaN],
+	)
+}))
+
+// describe('pick', () => it('works', () => {
+// 	//
+// }))
+
+// describe('omit', () => it('works', () => {
+// 	//
+// }))
+
