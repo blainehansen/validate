@@ -1,5 +1,5 @@
 {
-  "name": "@blainehansen/decode",
+  "name": "@blainehansen/validate",
   "version": "0.1.0",
   "description": "",
   "main": "dist/lib/index.js",

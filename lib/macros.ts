@@ -36,7 +36,7 @@ export const decodable = DecoratorMacro((ctx, statement) => {
 	if (ts.isInterfaceDeclaration(statement))
 		return decodableForInterface(ctx, statement, isExported)
 	if (ts.isEnumDeclaration(statement))
-		return decoderForEnum(ctx, statement, isExported)
+		return validatorForEnum(ctx, statement, isExported)
 	if (ts.isFunctionDeclaration(statement))
 		return decodableForFunction(ctx, statement, isExported)
 
@@ -46,12 +46,12 @@ export const decodable = DecoratorMacro((ctx, statement) => {
 function decodableForTypeAlias(ctx: MacroContext, alias: ts.TypeAliasDeclaration, isExported: boolean): DecoratorMacroResult {
 	const genericNames = produceGenericNames(alias.typeParameters)
 	const originalAlias = createGenericAlias(alias.name, alias.typeParameters)
-	const decoder = decoderForType(ctx, alias.type, genericNames, originalAlias)
-	if (decoder.isErr()) return ctx.TsNodeErr(...decoder.error)
+	const validator = validatorForType(ctx, alias.type, genericNames, originalAlias)
+	if (validator.isErr()) return ctx.TsNodeErr(...validator.error)
 
 	return ctx.Ok({
 		replacement: alias,
-		append: [createDecoderModule(isExported, alias.name, alias.typeParameters, decoder.value, originalAlias.type)],
+		append: [createValidatorModule(isExported, alias.name, alias.typeParameters, validator.value, originalAlias.type)],
 	})
 }
 
@@ -71,57 +71,57 @@ function decodableForInterface(ctx: MacroContext, declaration: ts.InterfaceDecla
 	const genericNames = produceGenericNames(declaration.typeParameters)
 	const intersections = declaration.heritageClauses ? intersectionsFromHeritageClauses(ctx, declaration.heritageClauses, genericNames) : undefined
 	const originalAlias = createGenericAlias(declaration.name, declaration.typeParameters)
-	const decoder = decoderForType(
+	const validator = validatorForType(
 		ctx, ts.createTypeLiteralNode(declaration.members), genericNames,
 		intersections ? undefined : originalAlias,
 	)
-	if (decoder.isErr()) return ctx.TsNodeErr(...decoder.error)
+	if (validator.isErr()) return ctx.TsNodeErr(...validator.error)
 
 	return ctx.Ok({
 		replacement: declaration,
-		append: [createDecoderModule(
+		append: [createValidatorModule(
 			isExported, declaration.name, declaration.typeParameters,
-			intersectOrNot(decoder.value, intersections), originalAlias.type,
+			intersectOrNot(validator.value, intersections), originalAlias.type,
 		)],
 	})
 }
 
 
-// look for the constructor, and if it exists simply make the decoder for the parameters with a wrapper
-// if it doesn't exist then look for an extends heritage, and just use the decoder for that, since the constructor must be derived
-// if that doesn't exist then make a trivial decoder that just creates the thing???
-// no probably the only reasonable thing to do here is to error. we should be forcing people to use a class convention that is actually reasonable to decode! maybe you can get fancy in the future, but for now keep it simple
+// look for the constructor, and if it exists simply make the validator for the parameters with a wrapper
+// if it doesn't exist then look for an extends heritage, and just use the validator for that, since the constructor must be derived
+// if that doesn't exist then make a trivial validator that just creates the thing???
+// no probably the only reasonable thing to do here is to error. we should be forcing people to use a class convention that is actually reasonable to validate! maybe you can get fancy in the future, but for now keep it simple
 function decodableForClass(ctx: MacroContext, declaration: ts.ClassDeclaration, isExported: boolean): DecoratorMacroResult {
 	if (!declaration.name)
 		return ctx.TsNodeErr(declaration, "Invalid Anonymous Class", "Decodable classes must have a name.")
 
 	const genericNames = produceGenericNames(declaration.typeParameters)
 	const originalAlias = createGenericAlias(declaration.name, declaration.typeParameters)
-	let constructorDecoder: ts.Expression | undefined = undefined
+	let constructorValidator: ts.Expression | undefined = undefined
 	for (const member of declaration.members) switch (member.kind) {
 		case SyntaxKind.Constructor: {
-			const decoderResult = createDecoderForArgs(ctx, (member as ts.ConstructorDeclaration).parameters, genericNames)
-			if (decoderResult.isErr()) return ctx.TsNodeErr(...decoderResult.error)
+			const validatorResult = createValidatorForArgs(ctx, (member as ts.ConstructorDeclaration).parameters, genericNames)
+			if (validatorResult.isErr()) return ctx.TsNodeErr(...validatorResult.error)
 
-			const [decoder, argsTupleType] = decoderResult.value
-			constructorDecoder = createCombinatorCall(
+			const [validator, argsTupleType] = validatorResult.value
+			constructorValidator = createCombinatorCall(
 				'cls', [argsTupleType, originalAlias.type],
-				[declaration.name, decoder],
+				[declaration.name, validator],
 			)
 			break
 		}
 		default: continue
 	}
-	if (!constructorDecoder)
-		return ctx.TsNodeErr(declaration.name, "No Constructor", "Decodable classes must have a constructor whose args can be decoded.")
+	if (!constructorValidator)
+		return ctx.TsNodeErr(declaration.name, "No Constructor", "Decodable classes must have a constructor whose args can be validated.")
 
 	return ctx.Ok({
 		replacement: declaration,
-		append: [createDecoderModule(isExported, declaration.name, declaration.typeParameters, constructorDecoder, originalAlias.type)],
+		append: [createValidatorModule(isExported, declaration.name, declaration.typeParameters, constructorValidator, originalAlias.type)],
 	})
 }
 
-function decoderForEnum(ctx: MacroContext, declaration: ts.EnumDeclaration, isExported: boolean): DecoratorMacroResult {
+function validatorForEnum(ctx: MacroContext, declaration: ts.EnumDeclaration, isExported: boolean): DecoratorMacroResult {
 	const enumName = declaration.name.text
 	const clauses: ts.CaseClause[] = []
 	for (const [index, member] of declaration.members.entries()) {
@@ -139,7 +139,7 @@ function decoderForEnum(ctx: MacroContext, declaration: ts.EnumDeclaration, isEx
 	}
 
 	const enumType = ts.createTypeReferenceNode(enumName)
-	const decoder = createCombinatorCall('wrapEnum', [enumType], [
+	const validator = createCombinatorCall('wrapEnum', [enumType], [
 		ts.createStringLiteral(enumName),
 		ts.createFunctionExpression(
 			undefined, undefined, undefined, undefined,
@@ -154,7 +154,7 @@ function decoderForEnum(ctx: MacroContext, declaration: ts.EnumDeclaration, isEx
 
 	return ctx.Ok({
 		replacement: declaration,
-		append: [createDecoderModule(isExported, declaration.name, undefined, decoder, enumType)],
+		append: [createValidatorModule(isExported, declaration.name, undefined, validator, enumType)],
 	})
 }
 
@@ -167,22 +167,22 @@ function decodableForFunction(ctx: MacroContext, declaration: ts.FunctionDeclara
 		return ctx.TsNodeErr(declaration, "Invalid Generic Function", "Generic decodable functions must have their return type annotated.")
 
 	const genericNames = produceGenericNames(declaration.typeParameters)
-	const decoderResult = createDecoderForArgs(ctx, declaration.parameters, genericNames)
-	if (decoderResult.isErr()) return ctx.TsNodeErr(...decoderResult.error)
-	const [argsDecoder, argsTupleType] = decoderResult.value
+	const validatorResult = createValidatorForArgs(ctx, declaration.parameters, genericNames)
+	if (validatorResult.isErr()) return ctx.TsNodeErr(...validatorResult.error)
+	const [argsValidator, argsTupleType] = validatorResult.value
 	const returnType = declaration.type
 		? declaration.type
 		: ts.createTypeReferenceNode(ts.createIdentifier('ReturnType'), [ts.createTypeQueryNode(declaration.name)])
-	const funcDecoder = createCombinatorCall('func', [argsTupleType, returnType], [declaration.name, argsDecoder])
+	const funcValidator = createCombinatorCall('func', [argsTupleType, returnType], [declaration.name, argsValidator])
 
 	return ctx.Ok({
 		replacement: declaration,
-		append: [createDecoderModule(isExported, declaration.name, declaration.typeParameters, funcDecoder, returnType)],
+		append: [createValidatorModule(isExported, declaration.name, declaration.typeParameters, funcValidator, returnType, true)],
 	})
 }
 
 
-function createDecoderForArgs(
+function createValidatorForArgs(
 	ctx: MacroContext,
 	parameters: ts.NodeArray<ts.ParameterDeclaration>,
 	genericNames: Set<string> | undefined
@@ -194,19 +194,19 @@ function createDecoderForArgs(
 	for (const parameter of parameters) {
 		const { dotDotDotToken, questionToken, type, initializer } = parameter
 		if (!type)
-			return TsNodeErr(parameter, "No Decodable Type", `The "decode" macro can't create a decoder from an inferred type.`)
+			return TsNodeErr(parameter, "No Decodable Type", `The "validate" macro can't create a validator from an inferred type.`)
 		const isRest = !!dotDotDotToken
-		const result = decoderForType(ctx, type, genericNames, undefined)
+		const result = validatorForType(ctx, type, genericNames, undefined)
 		if (result.isErr()) return Err(result.error)
 		const isOptional = !!questionToken || !!initializer
-		const decoder = createOptional(isOptional, result.value)
+		const validator = createOptional(isOptional, result.value)
 		const finalType = isOptional ? ts.createOptionalTypeNode(type) : type
 		if (isRest) {
-			spreadArg = decoder
+			spreadArg = validator
 			spreadTypeArg = finalType
 		}
 		else {
-			tupleArgs.push(decoder)
+			tupleArgs.push(validator)
 			tupleTypeArgs.push(finalType)
 		}
 	}
@@ -232,15 +232,16 @@ function tupleOrSpread(
 }
 
 
-function createDecoderModule(
+function createValidatorModule(
 	isExported: boolean, name: ts.Identifier,
 	typeParameters: ts.NodeArray<ts.TypeParameterDeclaration> | undefined,
-	decoderExpression: ts.Expression,
-	decoderType: ts.TypeNode,
+	validatorExpression: ts.Expression,
+	validatorType: ts.TypeNode,
+	forFunction = false,
 ) {
 	const statement = typeParameters
-		? createGenericDecoder(name, typeParameters, decoderExpression, decoderType)
-		: createConcreteDecoder(name, decoderExpression, decoderType)
+		? createGenericValidator(name, typeParameters, validatorExpression, validatorType, forFunction)
+		: createConcreteValidator(name, validatorExpression, validatorType, forFunction)
 
 	return ts.createModuleDeclaration(
 		undefined, conditionalExport(isExported), name,
@@ -258,11 +259,12 @@ function produceGenericNames(typeParameters: ts.NodeArray<ts.TypeParameterDeclar
 	return genericNames
 }
 
-function createGenericDecoder(
+function createGenericValidator(
 	name: ts.Identifier,
 	typeParameters: ts.NodeArray<ts.TypeParameterDeclaration>,
-	decoderExpression: ts.Expression,
-	decoderType: ts.TypeNode,
+	validatorExpression: ts.Expression,
+	validatorType: ts.TypeNode,
+	forFunction: boolean,
 ) {
 	const genericNames = new Set<string>()
 	const parameters: ts.ParameterDeclaration[] = []
@@ -271,35 +273,42 @@ function createGenericDecoder(
 		parameters.push(ts.createParameter(
 			undefined, undefined, undefined, typeParameter.name, undefined,
 			ts.createTypeReferenceNode(
-				ts.createQualifiedName(ts.createIdentifier('c'), ts.createIdentifier('Decoder')),
+				ts.createQualifiedName(ts.createIdentifier('c'), ts.createIdentifier('Validator')),
 				[ts.createTypeReferenceNode(typeParameter.name, undefined)],
 			), undefined,
 		))
 	}
 
 	return ts.createFunctionDeclaration(
-		undefined, exportModifers, undefined, ts.createIdentifier('decoder'),
-		typeParameters, parameters, createDecoderType(decoderType),
-		ts.createBlock([ts.createReturn(decoderExpression)], true),
+		undefined, exportModifers, undefined,
+		ts.createIdentifier(forFunction ? 'validateCaller' : 'validator'),
+		typeParameters, parameters,
+		forFunction ? undefined : createValidatorType(validatorType),
+		ts.createBlock([ts.createReturn(validatorExpression)], true),
 	)
 }
 
-function createConcreteDecoder(
+function createConcreteValidator(
 	name: ts.Identifier,
-	decoderExpression: ts.Expression,
-	decoderType: ts.TypeNode,
+	validatorExpression: ts.Expression,
+	validatorType: ts.TypeNode,
+	forFunction: boolean,
 ) {
 	return ts.createVariableStatement(
 		exportModifers,
 		ts.createVariableDeclarationList([
-			ts.createVariableDeclaration(ts.createIdentifier('decoder'), createDecoderType(decoderType), decoderExpression),
+			ts.createVariableDeclaration(
+				ts.createIdentifier(forFunction ? 'validateCaller' : 'validator'),
+				forFunction ? undefined : createValidatorType(validatorType),
+				validatorExpression
+			),
 		], ts.NodeFlags.Const),
 	)
 }
 
-function createDecoderType(typeNode: ts.TypeNode) {
+function createValidatorType(typeNode: ts.TypeNode) {
 	return ts.createTypeReferenceNode(
-		ts.createQualifiedName(ts.createIdentifier('c'), ts.createIdentifier('Decoder')),
+		ts.createQualifiedName(ts.createIdentifier('c'), ts.createIdentifier('Validator')),
 		[typeNode],
 	)
 }
@@ -337,7 +346,7 @@ const primitiveMap = {
 }
 
 type GenericAlias = { name: string, type: ts.TypeNode }
-function decoderForType(
+function validatorForType(
 	ctx: MacroContext,
 	typeNode: ts.TypeNode,
 	genericNames: Set<string> | undefined,
@@ -361,32 +370,36 @@ function decoderForType(
 					return Ok(node.typeName)
 
 				function createWrapCombinator(combinatorName: string, typeNode: ts.TypeNode): NodeResult<ts.Expression> {
-					const inner = decoderForType(ctx, typeNode, genericNames, undefined)
+					const inner = validatorForType(ctx, typeNode, genericNames, undefined)
 					if (inner.isErr()) return inner
 					return Ok(createCombinatorCall(combinatorName, node.typeArguments, [inner.value]))
 				}
 
-				function keysTypeToExpression(typeNode: ts.TypeNode): NodeResult<ts.Expression> {
+				function keysTypeToExpression(typeNode: ts.TypeNode): ts.Expression[] {
 					if (ts.isUnionTypeNode(typeNode))
-						return Ok(ts.createArrayLiteral(resultMap(ctx, typeNode.types, keysTypeToExpression)))
+						return typeNode.types.flatMap(keysTypeToExpression)
 
 					// TODO this could be more lenient, allowing references and TypeQueryNode (typeof operator)
 					// we could even allow something like keyof typeof and produce an Object.keys
 					// and also a spread of a typeof
-					if (!isLiteral(typeNode))
-						return TsNodeErr(typeNode, "Expecting Keys Type", "Can't produce an expression of keys from a type that isn't a literal or a union of literals")
+					if (!isLiteral(typeNode)) {
+						ctx.subsume(ctx.TsNodeErr(typeNode, "Expecting Keys Type", "Can't produce an expression of keys from a type that isn't a literal or a union of literals"))
+						return []
+					}
 
 					const literal = createLiteral(typeNode)
-					if (!(ts.isStringLiteral(literal) || ts.isNumericLiteral(literal)))
-						return TsNodeErr(typeNode, "Expecting String or Numeric Literal")
+					if (!(ts.isStringLiteral(literal) || ts.isNumericLiteral(literal))) {
+						ctx.subsume(ctx.TsNodeErr(typeNode, "Expecting String or Numeric Literal"))
+						return []
+					}
 
-					return Ok(literal)
+					return [literal]
 				}
 
 				switch (typeName) {
 					case 'Array':
 						if (node.typeArguments && node.typeArguments.length === 1)
-							return decoderForType(ctx, ts.createArrayTypeNode(node.typeArguments[0]), genericNames, undefined)
+							return validatorForType(ctx, ts.createArrayTypeNode(node.typeArguments[0]), genericNames, undefined)
 						break
 
 					case 'Partial': case 'Required': case 'Readonly': case 'NonNullable':
@@ -402,13 +415,12 @@ function decoderForType(
 					case 'Pick': case 'Omit':
 						if (node.typeArguments && node.typeArguments.length === 2) {
 							const [targetType, keysType] = node.typeArguments
-							const inner = decoderForType(ctx, targetType, genericNames, undefined)
+							const inner = validatorForType(ctx, targetType, genericNames, undefined)
 							if (inner.isErr()) return inner
 							const keys = keysTypeToExpression(keysType)
-							if (keys.isErr()) return keys
 							return Ok(createCombinatorCall(
 								typeName.toLowerCase(), node.typeArguments,
-								[inner.value, ts.isArrayLiteralExpression(keys.value) ? keys.value : ts.createArrayLiteral([keys.value])],
+								[inner.value].concat(keys),
 							))
 						}
 						break
@@ -416,13 +428,12 @@ function decoderForType(
 					case 'Record':
 						if (node.typeArguments && node.typeArguments.length === 2) {
 							const [keysType, targetType] = node.typeArguments
-							const inner = decoderForType(ctx, targetType, genericNames, undefined)
+							const inner = validatorForType(ctx, targetType, genericNames, undefined)
 							if (inner.isErr()) return inner
 							const keys = keysTypeToExpression(keysType)
-							if (keys.isErr()) return keys
 							return Ok(createCombinatorCall(
 								typeName.toLowerCase(), node.typeArguments,
-								[ts.isArrayLiteralExpression(keys.value) ? keys.value : ts.createArrayLiteral([keys.value]), inner.value],
+								[ts.createArrayLiteral(keys), inner.value],
 							))
 						}
 						break
@@ -432,19 +443,19 @@ function decoderForType(
 					// 		//
 					// 		return Ok()
 					// 	}
-					// 	argsDecoder
+					// 	argsValidator
 					// case 'ConstructorParameters':
-					// 	constructorArgsDecoder
+					// 	constructorArgsValidator
 
 					default: break
 				}
 			}
 
-			const target = createDecoderAccess(qualifiedToExpression(node.typeName))
+			const target = createValidatorAccess(qualifiedToExpression(node.typeName))
 			const expression = node.typeArguments
 				? ts.createCall(
 					target, node.typeArguments,
-					resultMap(ctx, node.typeArguments, (typeArgument: ts.TypeNode) => decoderForType(ctx, typeArgument, genericNames, undefined)),
+					resultMap(ctx, node.typeArguments, (typeArgument: ts.TypeNode) => validatorForType(ctx, typeArgument, genericNames, undefined)),
 				)
 				: target
 			return Ok(expression)
@@ -476,15 +487,15 @@ function decoderForType(
 				if (!ts.isPropertySignature(member) || !member.type)
 					return TsNodeErr(member, "Unsupported Member")
 
-				const decoder = decoderForType(ctx, member.type, genericNames, undefined)
-				if (decoder.isErr()) return Err(decoder.error)
+				const validator = validatorForType(ctx, member.type, genericNames, undefined)
+				if (validator.isErr()) return Err(validator.error)
 				// CallSignatureDeclaration
 				// ConstructSignatureDeclaration
 				// PropertySignature
 				// MethodSignature
 				return Ok(ts.createPropertyAssignment(
 					member.name,
-					createOptional(!!member.questionToken, decoder.value),
+					createOptional(!!member.questionToken, validator.value),
 				))
 			})
 
@@ -497,9 +508,9 @@ function decoderForType(
 
 		case SyntaxKind.ArrayType: {
 			const node = typeNode as ts.ArrayTypeNode
-			const decoder = decoderForType(ctx, node.elementType, genericNames, undefined)
-			if (decoder.isErr()) return Err(decoder.error)
-			return Ok(createCombinatorCall('array', [node.elementType], [decoder.value]))
+			const validator = validatorForType(ctx, node.elementType, genericNames, undefined)
+			if (validator.isErr()) return Err(validator.error)
+			return Ok(createCombinatorCall('array', [node.elementType], [validator.value]))
 		}
 
 		case SyntaxKind.TupleType: {
@@ -515,9 +526,9 @@ function decoderForType(
 					: ts.isOptionalTypeNode(element) ? [false, true, element.type]
 					: [false, false, element]
 
-				const decoder = decoderForType(ctx, actualNode, genericNames, undefined)
-				if (decoder.isErr()) {
-					ctx.subsume(ctx.TsNodeErr(...decoder.error))
+				const validator = validatorForType(ctx, actualNode, genericNames, undefined)
+				if (validator.isErr()) {
+					ctx.subsume(ctx.TsNodeErr(...validator.error))
 					continue
 				}
 				if (isRest) {
@@ -525,11 +536,11 @@ function decoderForType(
 						ctx.subsume(ctx.TsNodeErr(element, "Duplicate Rest"))
 						continue
 					}
-					spreadArg = decoder.value
+					spreadArg = validator.value
 					spreadTypeArg = actualNode
 				}
 				else {
-					tupleArgs.push(createOptional(isOptional, decoder.value))
+					tupleArgs.push(createOptional(isOptional, validator.value))
 					tupleTypeArgs.push(element)
 				}
 			}
@@ -549,7 +560,7 @@ function decoderForType(
 					'literals', typeArgs,
 					(types as ts.NodeArray<LocalLiteralType>).map(createLiteral),
 				)
-				: createCombinatorCall('union', typeArgs, resultMap(ctx, types, type => decoderForType(ctx, type, genericNames, undefined)))
+				: createCombinatorCall('union', typeArgs, resultMap(ctx, types, type => validatorForType(ctx, type, genericNames, undefined)))
 
 			return Ok(expression)
 		}
@@ -558,20 +569,20 @@ function decoderForType(
 			const node = typeNode as ts.IntersectionTypeNode
 			return Ok(createCombinatorCall(
 				'intersection', [ts.createTupleTypeNode(node.types)],
-				resultMap(ctx, node.types, type => decoderForType(ctx, type, genericNames, undefined)),
+				resultMap(ctx, node.types, type => validatorForType(ctx, type, genericNames, undefined)),
 			))
 		}
 
 		case SyntaxKind.ParenthesizedType: {
 			const node = typeNode as ts.ParenthesizedTypeNode
-			return decoderForType(ctx, node.type, genericNames, originalAlias)
+			return validatorForType(ctx, node.type, genericNames, originalAlias)
 		}
 
 		// case SyntaxKind.FunctionType: {
 		// 	const node = typeNode as ts.FunctionTypeNode
-		// 	const decoderResult = createDecoderForArgs(ctx, node.parameters, genericNames)
-		// 	if (decoderResult.isErr()) return Err(decoderResult.error)
-		// 	const [argsDecoder, argsTupleType] = decoderResult.value
+		// 	const validatorResult = createValidatorForArgs(ctx, node.parameters, genericNames)
+		// 	if (validatorResult.isErr()) return Err(validatorResult.error)
+		// 	const [argsValidator, argsTupleType] = validatorResult.value
 
 		// 	const fnIdent = ts.createIdentifier('fn')
 		// 	const fnType = originalAlias
@@ -585,7 +596,7 @@ function decoderForType(
 		// 		)],
 		// 		undefined,
 		// 		ts.createBlock([ts.createReturn(
-		// 			createCombinatorCall('func', [argsTupleType, node.type], [fnIdent, argsDecoder]),
+		// 			createCombinatorCall('func', [argsTupleType, node.type], [fnIdent, argsValidator]),
 		// 		)], true),
 		// 	)
 		// 	return Ok(instantiator)
@@ -625,8 +636,8 @@ function createLiteral(literalType: LocalLiteralType): ts.Expression {
 	}
 }
 
-function createOptional(isOptional: boolean, decoder: ts.Expression) {
-	return isOptional ? createCombinatorCall('optional', undefined, [decoder]) : decoder
+function createOptional(isOptional: boolean, validator: ts.Expression) {
+	return isOptional ? createCombinatorCall('optional', undefined, [validator]) : validator
 }
 
 function createCombinatorCall(
@@ -639,8 +650,8 @@ function createCombinatorCall(
 	)
 }
 
-function createDecoderAccess(target: ts.Expression) {
-	return ts.createPropertyAccess(target, ts.createIdentifier('decoder'))
+function createValidatorAccess(target: ts.Expression) {
+	return ts.createPropertyAccess(target, ts.createIdentifier('validator'))
 }
 
 function intersectionsFromHeritageClauses(
@@ -651,18 +662,18 @@ function intersectionsFromHeritageClauses(
 	const expressions: ts.Expression[] = []
 	for (const { types } of heritageClauses) for (const { expression, typeArguments } of types) switch (expression.kind) {
 		case SyntaxKind.Identifier: {
-			const target = createDecoderAccess(expression as ts.Identifier)
-			const decoder = typeArguments
+			const target = createValidatorAccess(expression as ts.Identifier)
+			const validator = typeArguments
 				? ts.createCall(
 					target, undefined,
-					resultMap(ctx, typeArguments, typeArgument => decoderForType(ctx, typeArgument, genericNames, undefined))
+					resultMap(ctx, typeArguments, typeArgument => validatorForType(ctx, typeArgument, genericNames, undefined))
 				)
 				: target
-			expressions.push(decoder)
+			expressions.push(validator)
 			break
 		}
 		default:
-			ctx.subsume(ctx.TsNodeErr(expression, "Invalid Heritage Clause", `The "decoder" macro can't handle this type.`))
+			ctx.subsume(ctx.TsNodeErr(expression, "Invalid Heritage Clause", `The "validator" macro can't handle this type.`))
 			continue
 	}
 	return expressions

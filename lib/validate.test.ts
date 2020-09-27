@@ -1,27 +1,27 @@
 import 'mocha'
 import { expect } from 'chai'
 
-import * as c from './decode'
+import * as c from './validate'
 import { Dict } from './utils'
 import { assertType as assert } from './utils.test'
 import { Result, Ok, Err, Maybe, Some, None } from '@blainehansen/monads'
 
 function t<T extends any[]>(...values: T): T { return values }
 
-function validateExact<T>(decoder: c.Decoder<T>, okValues: T[], errValues: any[]) {
+function validateExact<T>(validator: c.Validator<T>, okValues: T[], errValues: any[]) {
 	for (const value of okValues)
-		expect(decoder.decodeExact(value)).eql(Ok(value))
+		expect(validator.validateExact(value)).eql(Ok(value))
 
 	for (const value of errValues)
-		expect(decoder.decodeExact(value).isErr()).true
+		expect(validator.validateExact(value).isErr()).true
 }
 
-function validate<T>(decoder: c.Decoder<T>, okValues: T[], errValues: any[]) {
+function validate<T>(validator: c.Validator<T>, okValues: T[], errValues: any[]) {
 	for (const value of okValues)
-		expect(decoder.decode(value)).eql(Ok(value))
+		expect(validator.validate(value)).eql(Ok(value))
 
 	for (const value of errValues) {
-		expect(decoder.decode(value).isErr()).true
+		expect(validator.validate(value).isErr()).true
 	}
 }
 
@@ -41,14 +41,14 @@ describe('cls', () => it('works', () => {
 		t(new A(1, 'a'), new A(1, 'a')),
 		t(new A(0, ''), new A(0, '')),
 	]
-	const decoder = c.cls(A, c.tuple(c.number, c.string))
+	const validator = c.cls(A, c.tuple(c.number, c.string))
 
 	for (const [okValue, expected] of pairs)
-		expect(decoder.decode(okValue)).eql(Ok(expected))
+		expect(validator.validate(okValue)).eql(Ok(expected))
 
 	const errValues = [[], [1], ['a'], { x: 1, y: 'a' }, {}, { a: 'a' }, true, 3]
 	for (const errValue of errValues)
-		expect(decoder.decode(errValue).isErr()).true
+		expect(validator.validate(errValue).isErr()).true
 }))
 
 describe('adapt', () => it('works', () => {
@@ -74,11 +74,11 @@ describe('adapt', () => it('works', () => {
 	]
 
 	for (const [okValue, expected] of pairs)
-		expect(a.decode(okValue)).eql(Ok(expected))
+		expect(a.validate(okValue)).eql(Ok(expected))
 
 	const errValues = [[], 'a', 'tru', ['a'], {}, { a: 'a' }, Some(true), Some([]), Some('a'), None, Some('')]
 	for (const errValue of errValues)
-		expect(a.decode(errValue).isErr()).true
+		expect(a.validate(errValue).isErr()).true
 }))
 
 describe('wrap', () => it('works', () => {
@@ -159,7 +159,7 @@ describe('recursive', () => it('works', () => {
 	  categories: Category[],
 	}
 
-	const Category: c.Decoder<Category> = c.object('Category', { name: c.string, categories: c.array(c.recursive(() => Category)) })
+	const Category: c.Validator<Category> = c.object('Category', { name: c.string, categories: c.array(c.recursive(() => Category)) })
 	assert.same<c.TypeOf<typeof Category>, Category>(true)
 
 	validate<Category>(
@@ -187,7 +187,7 @@ describe('union', () => it('works', () => {
 		[[], ['a'], {}, { a: 'a' }, true, false, 0, 1, 2, -2, -1, 5.5, -5.5, Infinity, NaN, -Infinity, -NaN],
 	)
 
-	// const separated = c.union(c.string, c.nullLiteral).decode
+	// const separated = c.union(c.string, c.nullLiteral).validate
 	// expect(separated('a')).eql(Ok('a'))
 }))
 
@@ -339,9 +339,9 @@ describe('literal', () => it('works', () => {
 		[null, undefined, [], ['a'], {}, { a: 'a' }, true, 3, 'b'],
 	)
 
-	const a: Result<5> = c.literal(5).decode(null)
+	const a: Result<5> = c.literal(5).validate(null)
 
-	// const separated = c.literal(4).decode
+	// const separated = c.literal(4).validate
 	// expect(separated(4)).eql(Ok(4))
 }))
 
@@ -352,9 +352,9 @@ describe('literals', () => it('works', () => {
 		[null, undefined, [], ['a'], {}, { a: 'a' }, true, 3, 'b'],
 	)
 
-	const a: Result<'a' | 5> = c.literals('a', 5).decode(null)
+	const a: Result<'a' | 5> = c.literals('a', 5).validate(null)
 
-	// const separated = c.literals(4, 5).decode
+	// const separated = c.literals(4, 5).validate
 	// expect(separated(4)).eql(Ok(4))
 	// expect(separated(5)).eql(Ok(5))
 }))
@@ -402,11 +402,11 @@ describe('maybe', () => it('works', () => {
 	]
 
 	for (const [okValue, expected] of pairs)
-		expect(v.decode(okValue)).eql(Ok(expected))
+		expect(v.validate(okValue)).eql(Ok(expected))
 
 	const errValues = [[], ['a'], {}, { a: 'a' }, true, 3, Some(true), Some([]), Some('a'), None, Some('')]
 	for (const errValue of errValues)
-		expect(v.decode(errValue).isErr()).true
+		expect(v.validate(errValue).isErr()).true
 }))
 
 
@@ -423,7 +423,7 @@ describe('array', () => it('works', () => {
 		[null, undefined, [true], {}, { a: 'a' }, true, false, 'a', -2, -1, 5.5, -5.5, Infinity, NaN, -Infinity, -NaN],
 	)
 
-	// const separated = c.array(c.number).decode
+	// const separated = c.array(c.number).validate
 	// expect(separated([4])).eql(Ok([4]))
 }))
 
@@ -441,7 +441,7 @@ describe('dictionary', () => it('works', () => {
 		[null, undefined, [], ['a'], { a: 'a' }, true, false, 'a', 0, 1, 2, -2, -1, 5.5, -5.5, Infinity, NaN, -Infinity, -NaN],
 	)
 
-	// const separated = c.dictionary(c.number).decode
+	// const separated = c.dictionary(c.number).validate
 	// expect(separated({ a: 4 })).eql(Ok({ a: 4 }))
 }))
 
@@ -482,7 +482,7 @@ describe('tuple', () => it('works', () => {
 		[null, undefined, [], [1, 4], [false, 'a', 0], ['a'], [1, 'a'], [1, 'a', 'b'], { a: 'a' }, true, 'a', 0, 1, -1, -5.5, Infinity, -NaN],
 	)
 
-	// const separated = c.tuple(c.number, c.boolean).decode
+	// const separated = c.tuple(c.number, c.boolean).validate
 	// expect(separated([1, true])).eql(Ok([1, true]))
 }))
 
@@ -518,7 +518,7 @@ describe('object strict', () => it('works', () => {
 		[{}, null, undefined, [], ['a'], { a: 'a' }, { b: true, c: 4 }, true, 'a', 2, 5.5, -5.5, Infinity, NaN],
 	)
 
-	// const separated = c.object('separated', { a: c.number }).decode
+	// const separated = c.object('separated', { a: c.number }).validate
 	// expect(separated({ a: 1 })).eql(Ok({ a: 1 }))
 }))
 
@@ -564,7 +564,7 @@ describe('object', () => it('works', () => {
 		[{}, null, undefined, [], ['a'], { a: 'a' }, { a: 1, b: true }, true, 'a', 2, 5.5, -5.5, Infinity, NaN],
 	)
 
-	// const separated = c.object('separated', { a: c.number }).decode
+	// const separated = c.object('separated', { a: c.number }).validate
 	// expect(separated({ a: 1 })).eql(Ok({ a: 1 }))
 }))
 
@@ -687,11 +687,100 @@ describe('nonnullable', () => it('works', () => {
 	)
 }))
 
-// describe('pick', () => it('works', () => {
-// 	//
-// }))
+describe('pick', () => it('works', () => {
+	validate<Pick<{ a: string, b: boolean, c: number | null }, 'a' | 'b'>>(
+		c.pick(c.object({
+			a: c.string,
+			b: c.boolean,
+			c: c.union(c.number, c.nullLiteral),
+		}), 'a', 'b'),
+		[{ a: 'a', b: true }, { a: 'a', b: true }, { a: 'a', b: true, c: 4 } as any],
+		[{ a: 'a' }, { b: false }, {}, null, undefined, [], ['a'], true, 'a', 2, -2, 5.5, -5.5, Infinity, NaN],
+	)
 
-// describe('omit', () => it('works', () => {
-// 	//
-// }))
+	validate(
+		c.pick(c.object({
+			a: c.string,
+			b: c.boolean,
+			c: c.union(c.number, c.nullLiteral),
+		}), 'c'),
+		[{ c: 4 }, { c: null }, { a: 'a', c: null } as any],
+		[{ a: 'a' }, { c: 'a' }, { b: false }, {}, null, undefined, [], ['a'], true, 'a', 2, -2, 5.5, -5.5, Infinity, NaN],
+	)
 
+	validate(
+		c.pick(c.tuple(c.string, c.boolean, c.union(c.number, c.nullLiteral)), '1'),
+		[{ '1': true }, { '1': false }, ['a', true, 2]],
+		[['a', 'a'], {}, null, undefined, [], ['a'], true, 'a', 2, -2, 5.5, -5.5, Infinity, NaN],
+	)
+
+	validateExact(
+		c.pick(c.tuple(c.string, c.boolean, c.union(c.number, c.nullLiteral)), '1'),
+		[{ '1': true }, { '1': false }],
+		[['a', true, 2], ['a', 'a'], {}, null, undefined, [], ['a'], true, 'a', 2, -2, 5.5, -5.5, Infinity, NaN],
+	)
+
+	validate(
+		c.pick(c.tuple(c.string, c.boolean, c.union(c.number, c.nullLiteral)), '0', '2'),
+		[{ '0': 'a', '2': 1 }, { '0': 'a', '2': null }, ['a', true, 2]],
+		[{ '1': false }, { b: false }, {}, null, undefined, [], ['a'], true, 'a', 2, -2, 5.5, -5.5, Infinity, NaN],
+	)
+
+	validateExact(
+		c.pick(c.tuple(c.string, c.boolean, c.union(c.number, c.nullLiteral)), '0', '2'),
+		[{ '0': 'a', '2': 1 }, { '0': 'a', '2': null }],
+		[['a', true, 2], { '1': false }, { b: false }, {}, null, undefined, [], ['a'], true, 'a', 2, -2, 5.5, -5.5, Infinity, NaN],
+	)
+}))
+
+describe('omit', () => it('works', () => {
+	validate<Omit<{ a: string, b: boolean, c: number | null }, 'a' | 'b'>>(
+		c.omit(c.object({
+			a: c.string,
+			b: c.boolean,
+			c: c.union(c.number, c.nullLiteral),
+		}), 'a', 'b'),
+		[{ c: 4 }, { c: null }, { a: 'a', c: null } as any],
+		[{ a: 'a', b: false }, { c: 'a' }, {}, null, undefined, [], ['a'], true, 'a', 2, -2, 5.5, -5.5, Infinity, NaN],
+	)
+
+	validate(
+		c.omit(c.object({
+			a: c.string,
+			b: c.boolean,
+			c: c.union(c.number, c.nullLiteral),
+		}), 'c'),
+		[{ a: 'a', b: true }, { a: 'a', b: false }, { a: 'a', b: true, c: 4 } as any],
+		[{ a: 'a' }, { b: false }, {}, null, undefined, [], ['a'], true, 'a', 2, -2, 5.5, -5.5, Infinity, NaN],
+	)
+
+	// validate(
+	// 	c.omit(c.tuple(c.string, c.boolean, c.union(c.number, c.nullLiteral)), ['1']),
+	// 	[{ '0': 'a', '2': 1 }, { '0': 'a', '2': null }, ['a', true, 2]],
+	// 	[{ '1': false }, { b: false }, {}, null, undefined, [], ['a'], ['a', true], true, 'a', 2, -2, 5.5, -5.5, Infinity, NaN],
+	// )
+
+	// validateExact(
+	// 	c.omit(c.tuple(c.string, c.boolean, c.union(c.number, c.nullLiteral)), ['1']),
+	// 	[{ '1': true }, { '1': false }],
+	// 	[['a', true, 2], ['a', 'a'], {}, null, undefined, [], ['a'], true, 'a', 2, -2, 5.5, -5.5, Infinity, NaN],
+	// )
+	// // [{ '0': 'a', '2': 1 }, { '0': 'a', '2': null }],
+	// // [['a', true, 2], { '1': false }, { b: false }, {}, null, undefined, [], ['a'], true, 'a', 2, -2, 5.5, -5.5, Infinity, NaN],
+
+	// validate(
+	// 	c.omit(c.tuple(c.string, c.boolean, c.union(c.number, c.nullLiteral)), ['0', '2']),
+	// 	[{ '0': 'a', '2': 1 }, { '0': 'a', '2': null }, ['a', true, 2]],
+	// 	[{ '1': false }, { b: false }, {}, null, undefined, [], ['a'], true, 'a', 2, -2, 5.5, -5.5, Infinity, NaN],
+	// )
+	// // [{ '1': true }, { '1': false }, ['a', true, 2]],
+	// // [['a', 'a'], {}, null, undefined, [], ['a'], true, 'a', 2, -2, 5.5, -5.5, Infinity, NaN],
+
+	// validateExact(
+	// 	c.omit(c.tuple(c.string, c.boolean, c.union(c.number, c.nullLiteral)), ['0', '2']),
+	// 	[{ '0': 'a', '2': 1 }, { '0': 'a', '2': null }],
+	// 	[['a', true, 2], { '1': false }, { b: false }, {}, null, undefined, [], ['a'], true, 'a', 2, -2, 5.5, -5.5, Infinity, NaN],
+	// )
+	// // [{ '1': true }, { '1': false }],
+	// // [['a', true, 2], ['a', 'a'], {}, null, undefined, [], ['a'], true, 'a', 2, -2, 5.5, -5.5, Infinity, NaN],
+}))
