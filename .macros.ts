@@ -1,2 +1,2 @@
-import { decodable } from './lib/macros'
-export const macros = { decodable }
+import { validatable } from './lib/macros'
+export const macros = { validatable }

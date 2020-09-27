@@ -1,4 +1,4 @@
-import { Result, Ok, Err, Maybe, Some, None } from '@blainehansen/monads'
+import { Result, Ok, Err } from '@blainehansen/monads'
 import { Validator, CombinatorValidator, callIsExact } from './validate'
 
 export type SafeAdaptor<U, T> = { isFallible: false, validator: Validator<U>, func: (input: U) => T }
@@ -29,9 +29,10 @@ class AdaptorValidator<U, T> extends CombinatorValidator<T> {
 
 		for (const adaptor of adaptors) {
 			const adaptorResult = callIsExact(adaptor.validator, isExact, input)
+			if (adaptorResult.isErr()) continue
 			const adaptorAttempt = adaptor.isFallible
-				? adaptorResult.tryChange(adaptor.func)
-				: adaptorResult.change(adaptor.func)
+				? adaptor.func(adaptorResult.value)
+				: Ok(adaptor.func(adaptorResult.value))
 
 			if (adaptorAttempt.isOk())
 				return adaptorAttempt

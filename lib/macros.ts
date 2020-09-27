@@ -3,8 +3,6 @@ const SyntaxKind = ts.SyntaxKind
 import { Result, Ok, Err } from '@blainehansen/monads'
 import { MacroContext, DecoratorMacro, DecoratorMacroResult } from '@blainehansen/macro-ts'
 
-import { Dict } from './utils'
-
 type TsNodeErrArgs = Parameters<MacroContext['TsNodeErr']>
 type NodeResult<T> = Result<T, TsNodeErrArgs>
 function TsNodeErr<T>(...tsNodeErrArgs: TsNodeErrArgs): NodeResult<T> {
@@ -27,23 +25,23 @@ function isNodeExported(node: ts.Node): boolean {
 	return (ts.getCombinedModifierFlags(node as ts.Declaration) & ts.ModifierFlags.Export) !== 0
 }
 
-export const decodable = DecoratorMacro((ctx, statement) => {
+export const validatable = DecoratorMacro((ctx, statement) => {
 	const isExported = isNodeExported(statement)
 	if (ts.isTypeAliasDeclaration(statement))
-		return decodableForTypeAlias(ctx, statement, isExported)
+		return validatableForTypeAlias(ctx, statement, isExported)
 	if (ts.isClassDeclaration(statement))
-		return decodableForClass(ctx, statement, isExported)
+		return validatableForClass(ctx, statement, isExported)
 	if (ts.isInterfaceDeclaration(statement))
-		return decodableForInterface(ctx, statement, isExported)
+		return validatableForInterface(ctx, statement, isExported)
 	if (ts.isEnumDeclaration(statement))
 		return validatorForEnum(ctx, statement, isExported)
 	if (ts.isFunctionDeclaration(statement))
-		return decodableForFunction(ctx, statement, isExported)
+		return validatableForFunction(ctx, statement, isExported)
 
-	return ctx.TsNodeErr(statement, "Unsupported statement", `The "decodable" macro can only be used on type aliases, classes, and interfaces.`)
+	return ctx.TsNodeErr(statement, "Unsupported statement", `The "validatable" macro can only be used on type aliases, classes, and interfaces.`)
 })
 
-function decodableForTypeAlias(ctx: MacroContext, alias: ts.TypeAliasDeclaration, isExported: boolean): DecoratorMacroResult {
+function validatableForTypeAlias(ctx: MacroContext, alias: ts.TypeAliasDeclaration, isExported: boolean): DecoratorMacroResult {
 	const genericNames = produceGenericNames(alias.typeParameters)
 	const originalAlias = createGenericAlias(alias.name, alias.typeParameters)
 	const validator = validatorForType(ctx, alias.type, genericNames, originalAlias)
@@ -67,7 +65,7 @@ function createGenericAlias(
 	}
 }
 
-function decodableForInterface(ctx: MacroContext, declaration: ts.InterfaceDeclaration, isExported: boolean): DecoratorMacroResult {
+function validatableForInterface(ctx: MacroContext, declaration: ts.InterfaceDeclaration, isExported: boolean): DecoratorMacroResult {
 	const genericNames = produceGenericNames(declaration.typeParameters)
 	const intersections = declaration.heritageClauses ? intersectionsFromHeritageClauses(ctx, declaration.heritageClauses, genericNames) : undefined
 	const originalAlias = createGenericAlias(declaration.name, declaration.typeParameters)
@@ -91,9 +89,9 @@ function decodableForInterface(ctx: MacroContext, declaration: ts.InterfaceDecla
 // if it doesn't exist then look for an extends heritage, and just use the validator for that, since the constructor must be derived
 // if that doesn't exist then make a trivial validator that just creates the thing???
 // no probably the only reasonable thing to do here is to error. we should be forcing people to use a class convention that is actually reasonable to validate! maybe you can get fancy in the future, but for now keep it simple
-function decodableForClass(ctx: MacroContext, declaration: ts.ClassDeclaration, isExported: boolean): DecoratorMacroResult {
+function validatableForClass(ctx: MacroContext, declaration: ts.ClassDeclaration, isExported: boolean): DecoratorMacroResult {
 	if (!declaration.name)
-		return ctx.TsNodeErr(declaration, "Invalid Anonymous Class", "Decodable classes must have a name.")
+		return ctx.TsNodeErr(declaration, "Invalid Anonymous Class", "Validatable classes must have a name.")
 
 	const genericNames = produceGenericNames(declaration.typeParameters)
 	const originalAlias = createGenericAlias(declaration.name, declaration.typeParameters)
@@ -113,7 +111,7 @@ function decodableForClass(ctx: MacroContext, declaration: ts.ClassDeclaration, 
 		default: continue
 	}
 	if (!constructorValidator)
-		return ctx.TsNodeErr(declaration.name, "No Constructor", "Decodable classes must have a constructor whose args can be validated.")
+		return ctx.TsNodeErr(declaration.name, "No Constructor", "Validatable classes must have a constructor whose args can be validated.")
 
 	return ctx.Ok({
 		replacement: declaration,
@@ -159,12 +157,12 @@ function validatorForEnum(ctx: MacroContext, declaration: ts.EnumDeclaration, is
 }
 
 
-function decodableForFunction(ctx: MacroContext, declaration: ts.FunctionDeclaration, isExported: boolean): DecoratorMacroResult {
+function validatableForFunction(ctx: MacroContext, declaration: ts.FunctionDeclaration, isExported: boolean): DecoratorMacroResult {
 	if (!declaration.name)
-		return ctx.TsNodeErr(declaration, "Invalid Anonymous Function", "Decodable functions must have a name.")
+		return ctx.TsNodeErr(declaration, "Invalid Anonymous Function", "Validatable functions must have a name.")
 
 	if (declaration.typeParameters && !declaration.type)
-		return ctx.TsNodeErr(declaration, "Invalid Generic Function", "Generic decodable functions must have their return type annotated.")
+		return ctx.TsNodeErr(declaration, "Invalid Generic Function", "Generic validatable functions must have their return type annotated.")
 
 	const genericNames = produceGenericNames(declaration.typeParameters)
 	const validatorResult = createValidatorForArgs(ctx, declaration.parameters, genericNames)
@@ -194,7 +192,7 @@ function createValidatorForArgs(
 	for (const parameter of parameters) {
 		const { dotDotDotToken, questionToken, type, initializer } = parameter
 		if (!type)
-			return TsNodeErr(parameter, "No Decodable Type", `The "validate" macro can't create a validator from an inferred type.`)
+			return TsNodeErr(parameter, "No Validatable Type", `The "validate" macro can't create a validator from an inferred type.`)
 		const isRest = !!dotDotDotToken
 		const result = validatorForType(ctx, type, genericNames, undefined)
 		if (result.isErr()) return Err(result.error)
@@ -240,8 +238,8 @@ function createValidatorModule(
 	forFunction = false,
 ) {
 	const statement = typeParameters
-		? createGenericValidator(name, typeParameters, validatorExpression, validatorType, forFunction)
-		: createConcreteValidator(name, validatorExpression, validatorType, forFunction)
+		? createGenericValidator(typeParameters, validatorExpression, validatorType, forFunction)
+		: createConcreteValidator(validatorExpression, validatorType, forFunction)
 
 	return ts.createModuleDeclaration(
 		undefined, conditionalExport(isExported), name,
@@ -260,7 +258,6 @@ function produceGenericNames(typeParameters: ts.NodeArray<ts.TypeParameterDeclar
 }
 
 function createGenericValidator(
-	name: ts.Identifier,
 	typeParameters: ts.NodeArray<ts.TypeParameterDeclaration>,
 	validatorExpression: ts.Expression,
 	validatorType: ts.TypeNode,
@@ -289,7 +286,6 @@ function createGenericValidator(
 }
 
 function createConcreteValidator(
-	name: ts.Identifier,
 	validatorExpression: ts.Expression,
 	validatorType: ts.TypeNode,
 	forFunction: boolean,

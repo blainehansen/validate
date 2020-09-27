@@ -1,6 +1,6 @@
 import { Result, Ok, Err, Maybe, Some, None } from '@blainehansen/monads'
 
-import { Dict, Cast, TupleIntersection, FilteredTupleIntersection, TupleLike, isObject } from './utils'
+import { Dict, TupleIntersection, isObject } from './utils'
 
 export abstract class Validator<T> {
 	abstract readonly name: string
@@ -16,7 +16,7 @@ export type ValidatorTuple<L extends any[]> = {
 }
 export type TypeOf<D extends Validator<any>> = D extends Validator<infer T> ? T : never
 
-function validatorErr<T>(name: string, input: unknown) {
+function validatorErr(name: string, input: unknown) {
 	return Err(`expected ${name}, got ${input}`)
 }
 
@@ -119,7 +119,7 @@ export const unknown = new WrapValidator(
 )
 export const never = new WrapValidator(
 	'never',
-	function(input: unknown): Result<never> {
+	function(_input: unknown): Result<never> {
 		return Err('never') as Result<never>
 	}
 )
@@ -335,7 +335,7 @@ class ArrayValidator<T> extends CombinatorValidator<T[]> {
 			const item = input[index]
 			const result = callIsExact(validator, isExact, item)
 			if (result.isErr())
-				return Err(`while decoding ${name}: at index ${index}, failed to validate ${validator.name}: ${result.error}`)
+				return Err(`while validating ${name}: at index ${index}, failed to validate ${validator.name}: ${result.error}`)
 		}
 
 		return Ok(input)
@@ -362,7 +362,7 @@ class DictionaryValidator<T> extends CombinatorValidator<Dict<T>> {
 			const value = (input as any)[key]
 			const result = callIsExact(validator, isExact, value)
 			if (result.isErr())
-				return Err(`while decoding ${name}, at key ${key}, failed to validate ${validator.name}: ${result.error}`)
+				return Err(`while validating ${name}, at key ${key}, failed to validate ${validator.name}: ${result.error}`)
 		}
 
 		return Ok(input as Dict<T>)
@@ -428,14 +428,14 @@ class TupleValidator<L extends any[], S extends any[] = []> extends CombinatorVa
 			const value = input[index]
 			const result = callIsExact(validator, isExact, value)
 			if (result.isErr())
-				return Err(`while decoding ${name}, at index ${index}, failed to validate ${validator.name}: ${result.error}`)
+				return Err(`while validating ${name}, at index ${index}, failed to validate ${validator.name}: ${result.error}`)
 		}
 
 		if (spread) {
 			const rest = input.slice(validators.length)
 			const result = callIsExact(spread, isExact, rest)
 			if (result.isErr())
-				return Err(`while decoding ${name}, in the spread, failed to validate ${spread.name}: ${result.error}`)
+				return Err(`while validating ${name}, in the spread, failed to validate ${spread.name}: ${result.error}`)
 		}
 
 		return Ok(input as [...L, ...S])
@@ -514,7 +514,7 @@ class IntersectionValidator<L extends any[]> extends CombinatorValidator<TupleIn
 
 	_validate(input: unknown, isExact: boolean): Result<TupleIntersection<L>> {
 		const { name, validators } = this
-		for (const validator of this.validators) {
+		for (const validator of validators) {
 			const result = callIsExact(validator, isExact, input)
 			if (result.isErr()) return Err(`expected ${name}, got ${input}: ${result.error}`)
 		}
