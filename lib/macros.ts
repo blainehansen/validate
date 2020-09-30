@@ -25,23 +25,25 @@ function isNodeExported(node: ts.Node): boolean {
 	return (ts.getCombinedModifierFlags(node as ts.Declaration) & ts.ModifierFlags.Export) !== 0
 }
 
-export const validatable = DecoratorMacro((ctx, statement) => {
+export const validator = DecoratorMacro((ctx, statement) => {
 	const isExported = isNodeExported(statement)
 	if (ts.isTypeAliasDeclaration(statement))
-		return validatableForTypeAlias(ctx, statement, isExported)
+		return validatorForTypeAlias(ctx, statement, isExported)
 	if (ts.isClassDeclaration(statement))
-		return validatableForClass(ctx, statement, isExported)
+		return validatorForClass(ctx, statement, isExported)
 	if (ts.isInterfaceDeclaration(statement))
-		return validatableForInterface(ctx, statement, isExported)
+		return validatorForInterface(ctx, statement, isExported)
 	if (ts.isEnumDeclaration(statement))
 		return validatorForEnum(ctx, statement, isExported)
 	if (ts.isFunctionDeclaration(statement))
-		return validatableForFunction(ctx, statement, isExported)
+		return validatorForFunction(ctx, statement, isExported)
 
-	return ctx.TsNodeErr(statement, "Unsupported statement", `The "validatable" macro can only be used on type aliases, classes, and interfaces.`)
+	return ctx.TsNodeErr(statement, "Unsupported statement", `The "validator" macro can only be used on type aliases, classes, and interfaces.`)
 })
 
-function validatableForTypeAlias(ctx: MacroContext, alias: ts.TypeAliasDeclaration, isExported: boolean): DecoratorMacroResult {
+const namespaceIdent = () => ts.createIdentifier('v')
+
+function validatorForTypeAlias(ctx: MacroContext, alias: ts.TypeAliasDeclaration, isExported: boolean): DecoratorMacroResult {
 	const genericNames = produceGenericNames(alias.typeParameters)
 	const originalAlias = createGenericAlias(alias.name, alias.typeParameters)
 	const validator = validatorForType(ctx, alias.type, genericNames, originalAlias)
@@ -65,7 +67,7 @@ function createGenericAlias(
 	}
 }
 
-function validatableForInterface(ctx: MacroContext, declaration: ts.InterfaceDeclaration, isExported: boolean): DecoratorMacroResult {
+function validatorForInterface(ctx: MacroContext, declaration: ts.InterfaceDeclaration, isExported: boolean): DecoratorMacroResult {
 	const genericNames = produceGenericNames(declaration.typeParameters)
 	const intersections = declaration.heritageClauses ? intersectionsFromHeritageClauses(ctx, declaration.heritageClauses, genericNames) : undefined
 	const originalAlias = createGenericAlias(declaration.name, declaration.typeParameters)
@@ -89,7 +91,7 @@ function validatableForInterface(ctx: MacroContext, declaration: ts.InterfaceDec
 // if it doesn't exist then look for an extends heritage, and just use the validator for that, since the constructor must be derived
 // if that doesn't exist then make a trivial validator that just creates the thing???
 // no probably the only reasonable thing to do here is to error. we should be forcing people to use a class convention that is actually reasonable to validate! maybe you can get fancy in the future, but for now keep it simple
-function validatableForClass(ctx: MacroContext, declaration: ts.ClassDeclaration, isExported: boolean): DecoratorMacroResult {
+function validatorForClass(ctx: MacroContext, declaration: ts.ClassDeclaration, isExported: boolean): DecoratorMacroResult {
 	if (!declaration.name)
 		return ctx.TsNodeErr(declaration, "Invalid Anonymous Class", "Validatable classes must have a name.")
 
@@ -157,12 +159,12 @@ function validatorForEnum(ctx: MacroContext, declaration: ts.EnumDeclaration, is
 }
 
 
-function validatableForFunction(ctx: MacroContext, declaration: ts.FunctionDeclaration, isExported: boolean): DecoratorMacroResult {
+function validatorForFunction(ctx: MacroContext, declaration: ts.FunctionDeclaration, isExported: boolean): DecoratorMacroResult {
 	if (!declaration.name)
 		return ctx.TsNodeErr(declaration, "Invalid Anonymous Function", "Validatable functions must have a name.")
 
 	if (declaration.typeParameters && !declaration.type)
-		return ctx.TsNodeErr(declaration, "Invalid Generic Function", "Generic validatable functions must have their return type annotated.")
+		return ctx.TsNodeErr(declaration, "Invalid Generic Function", "Generic validator functions must have their return type annotated.")
 
 	const genericNames = produceGenericNames(declaration.typeParameters)
 	const validatorResult = createValidatorForArgs(ctx, declaration.parameters, genericNames)
@@ -270,7 +272,7 @@ function createGenericValidator(
 		parameters.push(ts.createParameter(
 			undefined, undefined, undefined, typeParameter.name, undefined,
 			ts.createTypeReferenceNode(
-				ts.createQualifiedName(ts.createIdentifier('c'), ts.createIdentifier('Validator')),
+				ts.createQualifiedName(namespaceIdent(), ts.createIdentifier('Validator')),
 				[ts.createTypeReferenceNode(typeParameter.name, undefined)],
 			), undefined,
 		))
@@ -304,7 +306,7 @@ function createConcreteValidator(
 
 function createValidatorType(typeNode: ts.TypeNode) {
 	return ts.createTypeReferenceNode(
-		ts.createQualifiedName(ts.createIdentifier('c'), ts.createIdentifier('Validator')),
+		ts.createQualifiedName(namespaceIdent(), ts.createIdentifier('Validator')),
 		[typeNode],
 	)
 }
@@ -312,7 +314,7 @@ function createValidatorType(typeNode: ts.TypeNode) {
 function intersectOrNot(type: ts.Expression, intersections: ts.Expression[] | undefined) {
 	return intersections
 		? ts.createCall(
-			ts.createPropertyAccess(ts.createIdentifier('c'), ts.createIdentifier('intersection')), undefined,
+			ts.createPropertyAccess(namespaceIdent(), ts.createIdentifier('intersection')), undefined,
 			[type, ...intersections],
 		)
 		: type
@@ -353,7 +355,7 @@ function validatorForType(
 		case SyntaxKind.NumberKeyword: case SyntaxKind.BigIntKeyword:
 		case SyntaxKind.UndefinedKeyword: case SyntaxKind.VoidKeyword:
 		case SyntaxKind.UnknownKeyword: case SyntaxKind.NeverKeyword:
-			return Ok(ts.createPropertyAccess(ts.createIdentifier('c'), ts.createIdentifier(primitiveMap[typeNode.kind])))
+			return Ok(ts.createPropertyAccess(namespaceIdent(), ts.createIdentifier(primitiveMap[typeNode.kind])))
 
 		// case SyntaxKind.ObjectKeyword: case SyntaxKind.SymbolKeyword:
 
@@ -461,7 +463,7 @@ function validatorForType(
 			const node = typeNode as ts.LiteralTypeNode
 			switch (node.literal.kind) {
 				case SyntaxKind.NullKeyword: case SyntaxKind.TrueKeyword: case SyntaxKind.FalseKeyword:
-					return Ok(ts.createPropertyAccess(ts.createIdentifier('c'), ts.createIdentifier(primitiveMap[node.literal.kind])))
+					return Ok(ts.createPropertyAccess(namespaceIdent(), ts.createIdentifier(primitiveMap[node.literal.kind])))
 				case SyntaxKind.StringLiteral:
 				case SyntaxKind.NumericLiteral: case SyntaxKind.BigIntLiteral:
 					return Ok(createCombinatorCall('literal', [node], [node.literal]))
@@ -641,7 +643,7 @@ function createCombinatorCall(
 	typeArguments: readonly ts.TypeNode[] | undefined,
 	args: ts.Expression[]) {
 	return ts.createCall(
-		ts.createPropertyAccess(ts.createIdentifier('c'), ts.createIdentifier(combinator)),
+		ts.createPropertyAccess(namespaceIdent(), ts.createIdentifier(combinator)),
 		typeArguments, args,
 	)
 }

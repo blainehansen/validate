@@ -1,7 +1,7 @@
 {
   "name": "@blainehansen/validate",
   "version": "0.1.0",
-  "description": "",
+  "description": "A convenient typescript validation/decoding library with an accompanying helper macro.",
   "main": "./dist/lib/index.js",
   "types": "./dist/lib/index.d.ts",
   "exports": {
