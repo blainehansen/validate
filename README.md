@@ -2,7 +2,7 @@
 
 A convenient typescript validation/decoding library with an accompanying helper macro.
 
-Need to validate unknown input from the outside world, such as files, environment variables, or incoming http request bodies? This library gives a type-driven way to do so, either manually or with a [`macro-ts`](https://github.com/blainehansen/macro-ts) decorator macro. This library uses the safe [`Result` type from `@blainehansen/monads`](https://github.com/blainehansen/monads) to indicate success or failure rather than throwing exceptions.
+Need to validate unknown input from the outside world, such as files, environment variables, or incoming http request bodies? This library gives a type-driven way to do so, either manually or with a [`macro-ts`](https://github.com/blainehansen/macro-ts) decorator macro, and uses the safe [`Result` type from `@blainehansen/monads`](https://github.com/blainehansen/monads) to indicate success or failure rather than throwing exceptions.
 
 ```ts
 import * as v, { Result } from '@blainehansen/validate'
