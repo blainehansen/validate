@@ -189,6 +189,29 @@ assert.same<v.TypeOf<typeof GStringBoolean.validator>, { left: string, right: nu
 type GPrimBoolean = G<PrimitiveArray, boolean>
 assert.same<v.TypeOf<typeof GPrimBoolean.validator>, { left: string[], right: boolean }>(true)
 
+@validator!!()
+type RecursiveType = {
+  name: string,
+  categories: RecursiveType[],
+}
+assert.same<v.TypeOf<typeof RecursiveType.validator>, RecursiveType>(true)
+assert.same<v.TypeOf<typeof RecursiveType.validator>, { name: string, categories: RecursiveType[] }>(true)
+
+@validator!!()
+type GenericRecursiveType<T> = {
+  name: string,
+  value: T,
+  categories: GenericRecursiveType<T>[],
+}
+assert.same<typeof GenericRecursiveType.validator, <T>(T: v.Validator<T>) => v.Validator<GenericRecursiveType<T>>>(true)
+
+@validator!!()
+type WeirdGenericRecursiveType<T> = {
+  name: string,
+  value: T,
+  categories: WeirdGenericRecursiveType<string>[],
+}
+assert.same<typeof WeirdGenericRecursiveType.validator, <T>(T: v.Validator<T>) => v.Validator<WeirdGenericRecursiveType<T>>>(true)
 
 // @validator!!()
 // export type BasicFunc = (a: string, b: boolean) => number
@@ -308,4 +331,3 @@ assert.same<v.TypeOf<typeof Yoyoyoyo.validator>, Yoyoyoyo>(true)
 @validator!!()
 export enum HeterogeneousEnum { a = 2, b = 'b', c = 5 }
 assert.same<v.TypeOf<typeof HeterogeneousEnum.validator>, HeterogeneousEnum>(true)
-

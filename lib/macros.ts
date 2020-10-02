@@ -46,7 +46,7 @@ const namespaceIdent = () => ts.createIdentifier('v')
 function validatorForTypeAlias(ctx: MacroContext, alias: ts.TypeAliasDeclaration, isExported: boolean): DecoratorMacroResult {
 	const genericNames = produceGenericNames(alias.typeParameters)
 	const originalAlias = createGenericAlias(alias.name, alias.typeParameters)
-	const validator = validatorForType(ctx, alias.type, genericNames, originalAlias)
+	const validator = validatorForType(ctx, alias.type, genericNames, originalAlias, alias.name.text)
 	if (validator.isErr()) return ctx.TsNodeErr(...validator.error)
 
 	return ctx.Ok({
@@ -68,12 +68,15 @@ function createGenericAlias(
 }
 
 function validatorForInterface(ctx: MacroContext, declaration: ts.InterfaceDeclaration, isExported: boolean): DecoratorMacroResult {
+	const topName = declaration.name.text
 	const genericNames = produceGenericNames(declaration.typeParameters)
-	const intersections = declaration.heritageClauses ? intersectionsFromHeritageClauses(ctx, declaration.heritageClauses, genericNames) : undefined
+	const intersections = declaration.heritageClauses
+		? intersectionsFromHeritageClauses(ctx, declaration.heritageClauses, genericNames, topName)
+		: undefined
 	const originalAlias = createGenericAlias(declaration.name, declaration.typeParameters)
 	const validator = validatorForType(
 		ctx, ts.createTypeLiteralNode(declaration.members), genericNames,
-		intersections ? undefined : originalAlias,
+		intersections ? undefined : originalAlias, topName,
 	)
 	if (validator.isErr()) return ctx.TsNodeErr(...validator.error)
 
@@ -196,7 +199,7 @@ function createValidatorForArgs(
 		if (!type)
 			return TsNodeErr(parameter, "No Validatable Type", `The "validate" macro can't create a validator from an inferred type.`)
 		const isRest = !!dotDotDotToken
-		const result = validatorForType(ctx, type, genericNames, undefined)
+		const result = validatorForType(ctx, type, genericNames, undefined, '')
 		if (result.isErr()) return Err(result.error)
 		const isOptional = !!questionToken || !!initializer
 		const validator = createOptional(isOptional, result.value)
@@ -349,6 +352,7 @@ function validatorForType(
 	typeNode: ts.TypeNode,
 	genericNames: Set<string> | undefined,
 	originalAlias: GenericAlias | undefined,
+	topName: string,
 ): NodeResult<ts.Expression> {
 	switch (typeNode.kind) {
 		case SyntaxKind.BooleanKeyword: case SyntaxKind.StringKeyword:
@@ -361,102 +365,117 @@ function validatorForType(
 
 		case SyntaxKind.TypeReference: {
 			const node = typeNode as ts.TypeReferenceNode
-			if (ts.isIdentifier(node.typeName)) {
-				const typeName = node.typeName.text
 
-				if (genericNames && genericNames.has(typeName))
-					return Ok(node.typeName)
+			if (!ts.isIdentifier(node.typeName))
+				return Ok(useOrCall(
+					ctx,
+					createValidatorAccess(qualifiedToExpression(node.typeName)),
+					node.typeArguments, genericNames, topName,
+				))
 
-				function createWrapCombinator(combinatorName: string, typeNode: ts.TypeNode): NodeResult<ts.Expression> {
-					const inner = validatorForType(ctx, typeNode, genericNames, undefined)
-					if (inner.isErr()) return inner
-					return Ok(createCombinatorCall(combinatorName, node.typeArguments, [inner.value]))
-				}
+			const typeName = node.typeName.text
+			if (genericNames && genericNames.has(typeName))
+				return Ok(node.typeName)
 
-				function keysTypeToExpression(typeNode: ts.TypeNode): ts.Expression[] {
-					if (ts.isUnionTypeNode(typeNode))
-						return typeNode.types.flatMap(keysTypeToExpression)
+			if (topName === typeName)
+				return Ok(createCombinatorCall('recursive', [], [
+					ts.createArrowFunction(
+						undefined, undefined, [], undefined,
+						ts.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+						useOrCall(ctx, ts.createIdentifier('validator'), node.typeArguments, genericNames, topName)
+					),
+				]))
 
-					// TODO this could be more lenient, allowing references and TypeQueryNode (typeof operator)
-					// we could even allow something like keyof typeof and produce an Object.keys
-					// and also a spread of a typeof
-					if (!isLiteral(typeNode)) {
-						ctx.subsume(ctx.TsNodeErr(typeNode, "Expecting Keys Type", "Can't produce an expression of keys from a type that isn't a literal or a union of literals"))
-						return []
-					}
-
-					const literal = createLiteral(typeNode)
-					if (!(ts.isStringLiteral(literal) || ts.isNumericLiteral(literal))) {
-						ctx.subsume(ctx.TsNodeErr(typeNode, "Expecting String or Numeric Literal"))
-						return []
-					}
-
-					return [literal]
-				}
-
-				switch (typeName) {
-					case 'Array':
-						if (node.typeArguments && node.typeArguments.length === 1)
-							return validatorForType(ctx, ts.createArrayTypeNode(node.typeArguments[0]), genericNames, undefined)
-						break
-
-					case 'Partial': case 'Required': case 'Readonly': case 'NonNullable':
-						if (node.typeArguments && node.typeArguments.length === 1)
-							return createWrapCombinator(typeName.toLowerCase(), node.typeArguments[0])
-						break
-
-					case 'Dict':
-						if (node.typeArguments && node.typeArguments.length === 1)
-							return createWrapCombinator('dictionary', node.typeArguments[0])
-						break
-
-					case 'Pick': case 'Omit':
-						if (node.typeArguments && node.typeArguments.length === 2) {
-							const [targetType, keysType] = node.typeArguments
-							const inner = validatorForType(ctx, targetType, genericNames, undefined)
-							if (inner.isErr()) return inner
-							const keys = keysTypeToExpression(keysType)
-							return Ok(createCombinatorCall(
-								typeName.toLowerCase(), node.typeArguments,
-								[inner.value].concat(keys),
-							))
-						}
-						break
-
-					case 'Record':
-						if (node.typeArguments && node.typeArguments.length === 2) {
-							const [keysType, targetType] = node.typeArguments
-							const inner = validatorForType(ctx, targetType, genericNames, undefined)
-							if (inner.isErr()) return inner
-							const keys = keysTypeToExpression(keysType)
-							return Ok(createCombinatorCall(
-								typeName.toLowerCase(), node.typeArguments,
-								[ts.createArrayLiteral(keys), inner.value],
-							))
-						}
-						break
-
-					// case 'Parameters':
-					// 	if (node.typeArguments && node.typeArguments.length === 1 && node.typeArguments[0].isTypeReferenceNode()) {
-					// 		//
-					// 		return Ok()
-					// 	}
-					// 	argsValidator
-					// case 'ConstructorParameters':
-					// 	constructorArgsValidator
-
-					default: break
-				}
+			function createWrapCombinator(combinatorName: string, typeNode: ts.TypeNode): NodeResult<ts.Expression> {
+				const inner = validatorForType(ctx, typeNode, genericNames, undefined, topName)
+				if (inner.isErr()) return inner
+				return Ok(createCombinatorCall(combinatorName, node.typeArguments, [inner.value]))
 			}
 
-			const target = createValidatorAccess(qualifiedToExpression(node.typeName))
-			const expression = node.typeArguments
-				? ts.createCall(
-					target, node.typeArguments,
-					resultMap(ctx, node.typeArguments, (typeArgument: ts.TypeNode) => validatorForType(ctx, typeArgument, genericNames, undefined)),
-				)
-				: target
-			return Ok(expression)
+			function keysTypeToExpression(typeNode: ts.TypeNode): ts.Expression[] {
+				if (ts.isUnionTypeNode(typeNode))
+					return typeNode.types.flatMap(keysTypeToExpression)
+
+				// TODO this could be more lenient, allowing references and TypeQueryNode (typeof operator)
+				// we could even allow something like keyof typeof and produce an Object.keys
+				// and also a spread of a typeof
+				if (!isLiteral(typeNode)) {
+					ctx.subsume(ctx.TsNodeErr(typeNode, "Expecting Keys Type", "Can't produce an expression of keys from a type that isn't a literal or a union of literals"))
+					return []
+				}
+
+				const literal = createLiteral(typeNode)
+				if (!(ts.isStringLiteral(literal) || ts.isNumericLiteral(literal))) {
+					ctx.subsume(ctx.TsNodeErr(typeNode, "Expecting String or Numeric Literal"))
+					return []
+				}
+
+				return [literal]
+			}
+
+			switch (typeName) {
+				case 'Array':
+					if (node.typeArguments && node.typeArguments.length === 1)
+						return validatorForType(ctx, ts.createArrayTypeNode(node.typeArguments[0]), genericNames, undefined, topName)
+					break
+
+				case 'Partial': case 'Required': case 'Readonly': case 'NonNullable':
+					if (node.typeArguments && node.typeArguments.length === 1)
+						return createWrapCombinator(typeName.toLowerCase(), node.typeArguments[0])
+					break
+
+				case 'Dict':
+					if (node.typeArguments && node.typeArguments.length === 1)
+						return createWrapCombinator('dictionary', node.typeArguments[0])
+					break
+
+				// TODO
+				// case 'Map':
+				// case 'Set':
+
+				case 'Pick': case 'Omit':
+					if (node.typeArguments && node.typeArguments.length === 2) {
+						const [targetType, keysType] = node.typeArguments
+						const inner = validatorForType(ctx, targetType, genericNames, undefined, topName)
+						if (inner.isErr()) return inner
+						const keys = keysTypeToExpression(keysType)
+						return Ok(createCombinatorCall(
+							typeName.toLowerCase(), node.typeArguments,
+							[inner.value].concat(keys),
+						))
+					}
+					break
+
+				case 'Record':
+					if (node.typeArguments && node.typeArguments.length === 2) {
+						const [keysType, targetType] = node.typeArguments
+						const inner = validatorForType(ctx, targetType, genericNames, undefined, topName)
+						if (inner.isErr()) return inner
+						const keys = keysTypeToExpression(keysType)
+						return Ok(createCombinatorCall(
+							typeName.toLowerCase(), node.typeArguments,
+							[ts.createArrayLiteral(keys), inner.value],
+						))
+					}
+					break
+
+				// case 'Parameters':
+				// 	if (node.typeArguments && node.typeArguments.length === 1 && node.typeArguments[0].isTypeReferenceNode()) {
+				// 		//
+				// 		return Ok()
+				// 	}
+				// 	argsValidator
+				// case 'ConstructorParameters':
+				// 	constructorArgsValidator
+
+				default: break
+			}
+
+			return Ok(useOrCall(
+				ctx,
+				createValidatorAccess(qualifiedToExpression(node.typeName)),
+				node.typeArguments, genericNames, topName,
+			))
 		}
 
 		case SyntaxKind.LiteralType: {
@@ -485,7 +504,7 @@ function validatorForType(
 				if (!ts.isPropertySignature(member) || !member.type)
 					return TsNodeErr(member, "Unsupported Member")
 
-				const validator = validatorForType(ctx, member.type, genericNames, undefined)
+				const validator = validatorForType(ctx, member.type, genericNames, undefined, topName)
 				if (validator.isErr()) return Err(validator.error)
 				// CallSignatureDeclaration
 				// ConstructSignatureDeclaration
@@ -506,7 +525,7 @@ function validatorForType(
 
 		case SyntaxKind.ArrayType: {
 			const node = typeNode as ts.ArrayTypeNode
-			const validator = validatorForType(ctx, node.elementType, genericNames, undefined)
+			const validator = validatorForType(ctx, node.elementType, genericNames, undefined, topName)
 			if (validator.isErr()) return Err(validator.error)
 			return Ok(createCombinatorCall('array', [node.elementType], [validator.value]))
 		}
@@ -524,7 +543,7 @@ function validatorForType(
 					: ts.isOptionalTypeNode(element) ? [false, true, element.type]
 					: [false, false, element]
 
-				const validator = validatorForType(ctx, actualNode, genericNames, undefined)
+				const validator = validatorForType(ctx, actualNode, genericNames, undefined, topName)
 				if (validator.isErr()) {
 					ctx.subsume(ctx.TsNodeErr(...validator.error))
 					continue
@@ -558,7 +577,10 @@ function validatorForType(
 					'literals', typeArgs,
 					(types as ts.NodeArray<LocalLiteralType>).map(createLiteral),
 				)
-				: createCombinatorCall('union', typeArgs, resultMap(ctx, types, type => validatorForType(ctx, type, genericNames, undefined)))
+				: createCombinatorCall('union', typeArgs, resultMap(
+					ctx, types,
+					type => validatorForType(ctx, type, genericNames, undefined, topName),
+				))
 
 			return Ok(expression)
 		}
@@ -567,13 +589,13 @@ function validatorForType(
 			const node = typeNode as ts.IntersectionTypeNode
 			return Ok(createCombinatorCall(
 				'intersection', [ts.createTupleTypeNode(node.types)],
-				resultMap(ctx, node.types, type => validatorForType(ctx, type, genericNames, undefined)),
+				resultMap(ctx, node.types, type => validatorForType(ctx, type, genericNames, undefined, topName)),
 			))
 		}
 
 		case SyntaxKind.ParenthesizedType: {
 			const node = typeNode as ts.ParenthesizedTypeNode
-			return validatorForType(ctx, node.type, genericNames, originalAlias)
+			return validatorForType(ctx, node.type, genericNames, originalAlias, topName)
 		}
 
 		// case SyntaxKind.FunctionType: {
@@ -611,6 +633,24 @@ function validatorForType(
 		default:
 			return TsNodeErr(typeNode, "Unsupported Type")
 	}
+}
+
+function useOrCall(
+	ctx: MacroContext,
+	target: ts.Expression,
+	typeArguments: ts.NodeArray<ts.TypeNode> | undefined,
+	genericNames: Set<string> | undefined,
+	topName: string,
+): ts.Expression {
+	return typeArguments
+		? ts.createCall(
+			target, typeArguments,
+			resultMap(
+				ctx, typeArguments,
+				(typeArgument: ts.TypeNode) => validatorForType(ctx, typeArgument, genericNames, undefined, topName),
+			),
+		)
+		: target
 }
 
 type LocalLiteralType = ts.KeywordTypeNode<ts.SyntaxKind.UndefinedKeyword | ts.SyntaxKind.VoidKeyword> | ts.LiteralTypeNode
@@ -656,6 +696,7 @@ function intersectionsFromHeritageClauses(
 	ctx: MacroContext,
 	heritageClauses: ts.NodeArray<ts.HeritageClause>,
 	genericNames: Set<string> | undefined,
+	topName: string,
 ): ts.Expression[] {
 	const expressions: ts.Expression[] = []
 	for (const { types } of heritageClauses) for (const { expression, typeArguments } of types) switch (expression.kind) {
@@ -664,7 +705,7 @@ function intersectionsFromHeritageClauses(
 			const validator = typeArguments
 				? ts.createCall(
 					target, undefined,
-					resultMap(ctx, typeArguments, typeArgument => validatorForType(ctx, typeArgument, genericNames, undefined))
+					resultMap(ctx, typeArguments, typeArgument => validatorForType(ctx, typeArgument, genericNames, undefined, topName))
 				)
 				: target
 			expressions.push(validator)

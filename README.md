@@ -18,7 +18,7 @@ type Person = {
   emails: { address: string, validated: boolean }[],
 }
 
-// ... or manually...
+// ... or manually ...
 namespace Person {
   export const validator = v.object('Person', {
     name: v.string,
@@ -48,35 +48,257 @@ function parsePersonFile(fileContents: string) {
 
 ## The `validator` Macro
 
-The `validator` macro can automatically generate validators for most types, interfaces, and classes. However the typescript type system is extremely complex, so there are some types that will be rejected by the macro, and others that have some caveats.
+The `validator` macro can automatically generate validators for most type aliases, enums, interfaces, and classes. It can also be used on function declarations, but it doesn't produce a `Validator`, but a `FunctionValidator` (see below).
+
+If some type isn't covered by the below descriptions, then it isn't supported. The typescript type system is extremely complex, so there are some types that will be rejected by the macro. Pull requests are welcome!
+
+### Base Types
+
+The types that `validator` can generate validators for are the following:
+
+#### Object, Array, and Tuple Types
+
+These varieties use the `object`, `array`, and `tuple` combinators specified below. Tuple types can handle valid spreads at the end of the tuple.
+
+```ts
+@validator!!()
+type A = { a: string }
+// generates:
+namespace A {
+  export const validator = v.object('A', {
+    a: v.string
+  })
+}
+
+@validator!!()
+type A = string[]
+// generates:
+namespace A {
+  export const validator = v.array(v.string)
+}
+
+@validator!!()
+type A = [string, number]
+// generates:
+namespace A {
+  export const validator = v.tuple(v.string, v.number)
+}
+
+@validator!!()
+type A = [string, number, ...boolean[]]
+// generates:
+namespace A {
+  export const validator = v.spread(
+    v.string,
+    v.number,
+    v.array(v.boolean),
+  )
+}
+```
+
+#### References
+
+Type references assume that the referenced type has a validator at `TypeName.validator`, so any type you use in a `validator` type must also have it's own validator defined.
+
+```ts
+@validator!!()
+type C = { a: A, b: B }
+// will generate:
+namespace C {
+  export const validator = v.object('C', {
+    a: A.validator,
+    b: B.validator,
+  })
+}
+```
+
+Generic types will create `TypeName.validator` as a generic function that takes concrete validators.
+
+```ts
+@validator!!()
+type Box<T> = { item: T }
+// will generate:
+namespace Box {
+  export function validator<T>(T: v.Validator<T>): v.Validator<Box<T>> {
+    return v.object('Box', {
+      item: T,
+    })
+  }
+}
+```
+
+The builtin references `Array`, `Partial`, `Required`, `Readonly`, `NonNullable`, `Pick`, `Omit`, `Record`, and the validate library type `Dict` will all use the library combinators specified below in the `api` section when used with the right number of generic arguments.
+
+```ts
+@validator!!()
+type Arr = Array<string>
+@validator!!()
+type Arr = string[]
+
+// both will generate:
+namespace Arr {
+  export const validator = v.array(v.string)
+}
+```
+
+#### Unions
+
+```ts
+@validator!!()
+type A = string | number | boolean[]
+// will generate:
+namespace A {
+  export const validator = v.union(
+    v.string,
+    v.number,
+    v.array(v.boolean),
+  )
+}
+```
+
+#### Intersections
+
+Intersections in typescript are very complex in practice, but at the end of the day an intersection type simply means that *all* the type contracts in the intersection all hold simultaneously. For some types this is impossible (`string & number`, `[] & string[]`). This library does the simple thing and just requires that each validator it's given passes, so some intersection validators will never be successful on any input!
+
+```ts
+@validator!!()
+type A = string[] & { a: number }
+// will generate:
+namespace A {
+  export const validator = v.intersection(
+    v.array(v.string),
+    v.object({ a: v.number }),
+  )
+}
+```
+
+#### Literal Types
+
+Boolean, string, number, and bigint literals are supported.
+
+```ts
+@validator!!()
+type A = true | 'a' | 1 | 10n
+// will generate:
+namespace A {
+  export const validator = v.literals(true, 'a', 1, 10n)
+}
+
+@validator!!()
+type A =
+  | { ok: true, value: number }
+  | { ok: false }
+// will generate:
+namespace A {
+  export const validator = v.union(
+    v.object({ ok: v.literal(true), value: v.number }),
+    v.object({ ok: v.literal(false) }),
+  )
+}
+```
+
+#### Parenthesized Types
+
+Don't worry, these are handled :smile:
+
+### Enums
+
+Say you had an enum like this:
+
+```ts
+@validator!!()
+enum Color  {
+  RED, GREEN, BLUE,
+}
+```
+
+Something like this will be generated:
+
+```ts
+namespace Color {
+  export const validator = v.wrapEnum('Color', input => {
+    switch (input) {
+      case Color.RED:
+      case Color.GREEN:
+      case Color.BLUE:
+        return input
+      default:
+        return undefined
+    }
+  })
+}
+```
+
+### Interfaces
+
+Basic interfaces without any `extends` clauses will generate the same thing as an object literal type alias. But `extends` clause types make the type act like an intersection.
+
+So this:
+
+```ts
+@validator!!()
+interface B extends A {
+  b: number,
+}
+```
+
+will generate this:
+
+```ts
+namespace B {
+  export const validator = v.intersection(
+    v.object('B', { b: v.number }),
+    A.validator,
+  )
+}
+```
+
+### Classes
+
+Classes are unusual, since instances are created with possibly different values than the object's final shape. Right now `validator` inspects the constructor of a class, and uses the `cls` combinator to produce a validator that first performs a direct `instanceof` check, and then tries to validate the type of the constructor args, and if successful then constructs an instance of the class.
+
+This system doesn't make much sense, and a more reasonable one will likely be implemented in the future.
+
+```ts
+@validator!!()
+class A {
+  constructor(readonly a: string) {}
+}
+// will generate:
+namespace A {
+  export const validator = v.cls(A, v.tuple(v.string))
+}
+```
+
+Here's the type signature of the `cls` combinator:
+
+```ts
+interface Constructable<L extends any[], T> {
+  new (...args: L): T
+}
+function cls<L extends any[], T>(
+  clz: Constructable<L, T>,
+  constructorArgsValidator: Validator<L>,
+): Validator<T> {}
+```
 
 
-
-### `validator` and Functions
+### Function Declarations
 
 When used on a function declaration, the `validator` macro produces a `FunctionValidator` instance. This allows you to call the function with unknown input, which will first be validated against the type of the function args before calling the actual function.
 
 ```ts
 @validator!!()
-function sillyFunction(left: string, right: number) {
-  return left.length + right.length
+function sillyFunction(left: string, right: number): number {
+  return left.length + right
 }
 
-sillyFunction.validateCaller.validateCall(someUnknownArgs)
+const callResult: Result<number> = sillyFunction
+  .validateCaller.validateCall(unknownArgs)
 ```
 
 When `validator` is used on a generic function, the return type must be annotated.
 
-```ts
-class FunctionValidator<L extends any[], T> {
-  readonly name: string
-  constructor(
-    readonly fn: Func<L, T>,
-    readonly argsValidator: Validator<L>,
-  )
-  validateCall(input: unknown): Result<T>
-}
-```
 
 ## Common Types
 
@@ -106,13 +328,11 @@ type NumberOrBoolean = v.TypeOf<typeof NumberOrBoolean> // === number | boolean
 const = ''
 ```
 
-<!-- ### `type ValidatorTuple<L extends unknown[]>` -->
-
 ## Static Validators
 
 ### `string: Validator<string>`
 
-Decodes strings.
+Validates strings.
 
 ```ts
 v.string.validate('a') === Ok('a')
@@ -120,7 +340,7 @@ v.string.validate('a') === Ok('a')
 
 ### `boolean: Validator<boolean>`
 
-Decodes booleans.
+Validates booleans.
 
 ```ts
 v.boolean.validate(true) === Ok(true)
@@ -128,7 +348,7 @@ v.boolean.validate(true) === Ok(true)
 
 ### `number: Validator<number>`
 
-Decodes numbers. Doesn't allow any form of `NaN` or `Infinity`.
+Validates numbers. Doesn't allow any form of `NaN` or `Infinity`.
 
 ```ts
 v.number.validate(1.1) === Ok(1.1)
@@ -136,7 +356,7 @@ v.number.validate(1.1) === Ok(1.1)
 
 ### `looseNumber: Validator<number>`
 
-Decodes numbers. Does allow any form of `NaN` or `Infinity`.
+Validates numbers. Does allow any form of `NaN` or `Infinity`.
 
 ```ts
 v.looseNumber.validate(NaN) === Ok(NaN)
@@ -144,7 +364,7 @@ v.looseNumber.validate(NaN) === Ok(NaN)
 
 ### `int: Validator<number>`
 
-Decodes numbers if they have no decimal component.
+Validates numbers if they have no decimal component.
 
 ```ts
 v.int.validate(-1) === Ok(-1)
@@ -152,7 +372,7 @@ v.int.validate(-1) === Ok(-1)
 
 ### `uint: Validator<number>`
 
-Decodes numbers if they have no decimal component and are positive.
+Validates numbers if they have no decimal component and are positive.
 
 ```ts
 v.uint.validate(1) === Ok(1)
@@ -160,7 +380,7 @@ v.uint.validate(1) === Ok(1)
 
 ### `undefinedLiteral: Validator<undefined>`
 
-Decodes `undefined`.
+Validates `undefined`.
 
 ```ts
 v.undefinedLiteral.validate(undefined) === Ok(undefined)
@@ -168,7 +388,7 @@ v.undefinedLiteral.validate(undefined) === Ok(undefined)
 
 ### `nullLiteral: Validator<null>`
 
-Decodes `null`.
+Validates `null`.
 
 ```ts
 v.nullLiteral.validate(null) === Ok(null)
@@ -176,7 +396,7 @@ v.nullLiteral.validate(null) === Ok(null)
 
 ### `unknown: Validator<unknown>`
 
-Decodes `unknown`, which means this validator is always successful
+Validates `unknown`, which means this validator is always successful
 
 ```ts
 v.unknown.validate(null) === Ok(null)
@@ -186,7 +406,7 @@ v.unknown.validate('a') === Ok('a')
 
 ### `never: Validator<never>`
 
-Decodes `never`, which means this validator is never successful.
+Validates `never`, which means this validator is never successful.
 
 ```ts
 v.never.validate(null) === Err(...)
@@ -196,22 +416,6 @@ v.never.validate('a') === Err(...)
 
 
 ## Validator Combinators
-
-TODO for each of these, give some idea of how the same thing can be achieved with type aliases.
-
-TODO
-func
-recursive
-record
-spread
-intersection
-
-partial
-required
-nonnullable
-readonly
-pick
-omit
 
 ### `wrap<T>(name: string, validatorFunc: (input: unknown) => Result<T>): Validator<T>`
 
@@ -226,6 +430,9 @@ const OnlyEven = v.wrap('OnlyEven', input => {
 
 ### `wrapEnum<T>(name: string, validatorFunc: (input: unknown) => T | undefined): Validator<T>`
 
+Given a function that returns a value of type `T` or `undefined`, creates a validator for `T`.
+
+This function is mostly used by the `validator` macro for enums.
 
 ### `array<T>(validator: Validator<T>): Validator<T[]>`
 
@@ -243,7 +450,34 @@ Creates a validator of `{ [key: string]: T }` from an internal validator.
 const NumberDict = v.dict(v.number)
 ```
 
-### `tuple<L extends unknown[]>(...validators: ValidatorTuple<L>): Validator<L>`
+This combinator is used to represent the `Dict` type from this library.
+
+```ts
+import { Dict } from '@blainehansen/validate'
+// type Dict<T> = { [key: string]: T }
+
+@validator!!()
+type A = Dict<string>
+// will generate:
+namespace A {
+  export const validator = v.dictionary(v.string)
+}
+```
+
+### `record<K extends string | number | symbol, T>(keys: K[], validator: Validator<T>): Validator<Record<K, T>>`
+
+Creates a `Record` validator.
+
+```ts
+@validator!!()
+type A = Record<'a' | 'b' |'c', boolean>
+// will generate:
+namespace A {
+  export const validator = v.record(['a', 'b', 'c'], v.boolean)
+}
+```
+
+### `tuple<L extends any[]>(...validators: ValidatorTuple<L>): Validator<L>`
 
 Creates a tuple validator from some set of internal validators.
 
@@ -252,9 +486,12 @@ const StrNumBool = v.tuple(v.string, v.number, v.boolean)
 StrNumBool.validate(['a', 1, true]) === Ok(...)
 ```
 
-### `object<O>(name: string, validators: ValidatorObject<O>): Validator<O>`
+### `spread<L extends any[], S extends any[]>(...args: [...ValidatorTuple<L>, Validator<S>]): Validator<[...L, ...S]>`
 
-TODO
+Described above. Mostly used by the `validator` macro.
+
+### `object<O extends Dict<any>>(...args: [string, ValidatorObject<O>] | [ValidatorObject<O>]): Validator<O>`
+
 Creates a validator specified by the shape of the incoming object.
 
 ```ts
@@ -264,7 +501,7 @@ Person.validate({ name: 'Alice', height: 6, weight: 120 }) === Err("...")
 ```
 
 
-### `union(...validators: ValidatorTuple): Validator<T | U | ...>`
+### `union<L extends any[]>(...validators: ValidatorTuple<L>): Validator<L[number]>`
 
 Creates a validator for the union type of all input validators.
 
@@ -280,7 +517,7 @@ NumOrBoolOrStr.validate('a') === Ok('a')
 
 ### `literal<V extends Primitives>(value: V): Validator<V>`
 
-Creates a validator for an exact value. Must be `string | boolean | number | null | undefined`.
+Creates a validator for an exact value. Must be `string | boolean | number | bigint | null | undefined | void`.
 
 ```ts
 const OnlyOne = v.literal(1)
@@ -290,9 +527,9 @@ const ok = OnlyOne.validate(1)
 const err = OnlyOne.validate(2)
 ```
 
-### `literals<V extends Primitives>(...values: V[]): Validator<V[0] | V[1] | ...>`
+### `literals<L extends Primitives[]>(...values: L): Validator<L[number]>`
 
-Creates a validator for the union of several exact values. Must all be `string | boolean | number | null | undefined`.
+Creates a validator for the union of several exact values. Must all be `string | boolean | number | bigint | null | undefined | void`.
 
 ```ts
 const OneOrAOrTru = v.literals(1, 'a', true)
@@ -331,7 +568,7 @@ v.nillable(v.number)
 
 ### `maybe<T>(validator: Validator<T>): Validator<Maybe<T>>`
 
-Creates a validator that can adapt `T | null | undefined` to `Maybe<T>`. This is mostly useful when nesting this validator within other structures.
+Creates a validator that can adapt `T | null | undefined` to [`Maybe<T>`](https://github.com/blainehansen/monads/blob/master/lib/maybe.md). This is mostly useful when nesting this validator within other structures.
 
 ```ts
 import { Maybe, Some, None } from '@blainehansen/monads'
@@ -372,52 +609,53 @@ v.number
   })
 ```
 
-## Serializable Classes
+### `func<L extends any[], T>(fn: (...args: L) => T, argsValidator: Validator<L>): FunctionValidator<L, T>`
 
-All the validators here are for "static" types, or things that simply describe their shape. What happens when you want a custom class to be decodable?
-
-One way is to just have your class extend `Validator`:
+Described above. Mainly used in code generated by the `validator` macro.
 
 ```ts
-class A { constructor(readonly name: string, height: ) }
-```
-
-However, with the `Codec` interface and the `cls` combinator, you can easily produce a class that is easy to encode and validate using the normal constructor for your class.
-
-```ts
-class A implements v.Codec {
-  constructor(readonly x: number, readonly y: string) {}
-  static validate = v.tuple(v.number, v.string)
-  encode() {
-    return t(this.x, this.y)
-  }
-
-  static validator: v.Validator<A> = v.cls(A)
-}
-
-const original = new A(1, 2)
-
-const json = JSON.stringify(original.encode())
-const validated =
-  Result.attempt(() => JSON.parse(json))
-  .tryChange(json => A.validator.validate(json))
-
-validated === Ok(original)
-```
-
-### `cls<T extends Codec>(cn: CodecConstructor<T>): Validator<T>`
-
-Creates a validator from a class that implements `Codec`.
-
-### `interface Codec`
-
-```ts
-interface Codec<L extends unknown[] = unknown[]> {
-  // new (...args: L): T
-  static validator: Validator<L>
-  encode(): L
+class FunctionValidator<L extends any[], T> {
+  readonly name: string
+  readonly fn: (...args: L) => T,
+  readonly argsValidator: Validator<L>,
+  validateCall(input: unknown): Result<T>
 }
 ```
+
+### `recursive<T>(fn: () => Validator<T>): Validator<T>`
+
+Allows for recursive type definitions. The `validator` macro can detect recursive types, so this will be used in code generation.
+
+```ts
+@validator!!()
+type Category = {
+  name: string,
+  categories: Category[],
+}
+// will generate:
+namespace Category {
+  export const validator: v.Validator<Category> = v.object('Category', {
+    name: v.string,
+    categories: v.array(v.recursive(() => validator)),
+  })
+}
+```
+
+### `intersection<L extends any[]>(...validators: ValidatorTuple<L>): Validator<TupleIntersection<L>>`
+
+Described above.
+
+### `partial<T>(validator: Validator<T>): Validator<Partial<T>>`
+
+### `required<T>(validator: Validator<T>): Validator<Required<T>>`
+
+### `nonnullable<T>(validator: Validator<T>): Validator<NonNullable<T>>`
+
+### `readonly<T>(validator: Validator<T>): Validator<Readonly<T>>`
+
+### `pick<T, K extends keyof T>(validator: Validator<T>, ...keys: K[]): Validator<Pick<T, K>>`
+
+### `omit<T, K extends keyof T>(validator: Validator<T>, ...keys: K[]): Validator<Omit<T, K>>`
 
 
 ## Adaptation/Conversion
@@ -465,7 +703,7 @@ v.adaptor(v.number, n => n === 0)
 
 ### `tryAdaptor<U, T>(validator: Validator<U>, func: (input: U) => Result<T>): FallibleAdaptor<U, T>`
 
-Creates an adaptor from `U` to `T` that sometimes fails.
+Creates an adaptor from `U` to `T` that can fail.
 
 ```ts
 v.tryAdaptor(v.string, s => {
@@ -474,8 +712,3 @@ v.tryAdaptor(v.string, s => {
   return Err("couldn't convert from string to boolean")
 })
 ```
-
-<!-- ## Generic Serialization -->
-
-<!-- ### `abstract class Serializer` -->
-<!-- ### `class JsonSerializer extends Serializer` -->
